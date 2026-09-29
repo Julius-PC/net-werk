@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Harness Viz</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">harness<span>viz</span></div>
+    <nav id="projects" aria-label="Projects"></nav>
+    <div class="live" id="live" title="Live connection"><i></i><span>connecting</span></div>
+  </header>
+
+  <section class="summary">
+    <div class="progress">
+      <div class="progress-head">
+        <strong id="pname">—</strong>
+        <span id="pcount">0/0 done</span>
+      </div>
+      <div class="bar" id="bar"></div>
+      <div class="legend" id="legend"></div>
+    </div>
+    <div class="now" id="now"></div>
+    <div class="gates" id="gates"></div>
+  </section>
+
+  <main class="stage">
+    <div class="canvas-wrap">
+      <div class="toolbar">
+        <label><input type="checkbox" id="hideDone"> Hide done</label>
+        <label><input type="checkbox" id="onlyHuman"> Only my tasks</label>
+        <select id="phase" aria-label="Phase"><option value="">All phases</option></select>
+        <button id="zoomOut" type="button" aria-label="Zoom out">−</button><button id="zoomIn" type="button" aria-label="Zoom in">+</button><button id="fit" type="button">Fit</button>
+      </div>
+      <svg id="graph" role="img" aria-label="Task dependency graph"></svg>
+      <p class="hint">Scroll or drag to pan · pinch or ⌘-scroll to zoom · click a task for its brief</p>
+    </div>
+
+    <aside class="side">
+      <div id="detail" class="panel detail empty">Select a task to see its brief, acceptance and history.</div>
+      <div class="panel">
+        <h3>Commits</h3>
+        <ol id="commits" class="commits"></ol>
+      </div>
+      <div class="panel" id="loopPanel" hidden>
+        <h3>Loop log <small id="loopAge"></small></h3>
+        <pre id="loop" class="loop"></pre>
+      </div>
+    </aside>
+  </main>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

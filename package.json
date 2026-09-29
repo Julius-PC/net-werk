@@ -1,0 +1,10 @@
+{
+  "name": "harness-viz",
+  "version": "0.1.0",
+  "description": "Live, read-only view of any repo built by the harness (specs + task graph + loop).",
+  "type": "module",
+  "bin": { "harness-viz": "bin/harness-viz.mjs" },
+  "scripts": { "start": "node bin/harness-viz.mjs serve" },
+  "engines": { "node": ">=20" },
+  "license": "MIT"
+}
