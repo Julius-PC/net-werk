@@ -97,6 +97,17 @@ function serve(port) {
     res.writeHead(200, { 'content-type': TYPES[extname(abs)] ?? 'text/plain', 'cache-control': 'no-store' })
     res.end(readFileSync(abs))
   })
+  // A second launch is usually harmless: say whether harness-viz already owns the port.
+  server.on('error', async (err) => {
+    if (err.code !== 'EADDRINUSE') throw err
+    const ours = await fetch(`http://127.0.0.1:${port}/api/projects`).then((r) => r.ok, () => false)
+    if (ours) {
+      console.log(`harness-viz is already running → http://127.0.0.1:${port}`)
+      process.exit(0)
+    }
+    console.error(`port ${port} is taken by something else — try: harness-viz serve --port ${port + 1}`)
+    process.exit(1)
+  })
   // Loopback only: this shows private project plans.
   server.listen(port, '127.0.0.1', () => {
     console.log(`harness-viz → http://127.0.0.1:${port}`)
