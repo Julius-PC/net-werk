@@ -6,12 +6,13 @@
 //   harness-viz serve --port 4600
 //   harness-viz add <path>        register a project outside ~/code
 //   harness-viz remove <path>
+//   harness-viz open [path]       start the server if needed and open that project's page
 //   harness-viz list
 //   harness-viz install           run at login via launchd (uninstall | status)
 
 import { createServer } from 'node:http'
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, unlinkSync } from 'node:fs'
-import { execFileSync } from 'node:child_process'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, unlinkSync, openSync } from 'node:fs'
+import { execFileSync, spawn } from 'node:child_process'
 import { join, dirname, resolve, extname } from 'node:path'
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -181,6 +182,34 @@ async function launchdStatus(port) {
   console.log(`server:       ${up ? `answering on http://127.0.0.1:${port}` : 'not answering'}`)
 }
 
+/* ---------- on demand ------------------------------------------------------- */
+// `open` is the no-launchd path: make sure a server is answering (start a detached one if
+// not), register the project if it lives outside ~/code, then open its page.
+
+async function openProject(pathArg, port, noBrowser) {
+  const root = resolve(pathArg ?? '.')
+  const slug = isHarness(root) ? root.split('/').pop() : null
+  if (isHarness(root) && !projects().includes(root)) {
+    const r = readRegistry()
+    r.projects.push(root)
+    writeRegistry(r)
+  }
+  const up = () => fetch(`http://127.0.0.1:${port}/api/projects`).then((r) => r.ok, () => false)
+  if (!(await up())) {
+    mkdirSync(dirname(LOG), { recursive: true })
+    const out = openSync(LOG, 'a')
+    spawn(process.execPath, [fileURLToPath(import.meta.url), 'serve', '--port', String(port)], {
+      detached: true,
+      stdio: ['ignore', out, out],
+    }).unref()
+    for (let i = 0; i < 40 && !(await up()); i++) await new Promise((r) => setTimeout(r, 100))
+  }
+  const url = `http://127.0.0.1:${port}${slug ? `/p/${encodeURIComponent(slug)}` : ''}`
+  if (!slug) console.log(`${root} has no harness/graph/ yet — opening the project list`)
+  console.log(url)
+  if (!noBrowser) execFileSync('open', [url])
+}
+
 /* ---------- cli ------------------------------------------------------------ */
 
 const [cmd = 'serve', ...args] = process.argv.slice(2)
@@ -215,6 +244,9 @@ switch (cmd) {
   }
   case 'list':
     for (const p of projects()) console.log(p)
+    break
+  case 'open':
+    openProject(args.find((a) => !a.startsWith('--')), Number(flag('port', 4545)), args.includes('--no-browser'))
     break
   case 'install':
     launchdInstall(Number(flag('port', 4545)))

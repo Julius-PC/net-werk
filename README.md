@@ -16,7 +16,17 @@ node ~/code/harness-viz/bin/harness-viz.mjs          # http://127.0.0.1:4545
 - **Zero dependencies.** Node's `http` and one static page. Nothing to install and nothing to
   rot.
 
-## Run it at login
+## Open it on demand
+
+```bash
+node ~/code/harness-viz/bin/harness-viz.mjs open ~/code/yLLM
+```
+
+It starts the server in the background if nothing is answering, then opens that project's page.
+The Claude Code skill `~/.claude/skills/harness` calls this whenever harness or graph work comes
+up, so there's no need to keep it running.
+
+## Run it at login (optional)
 
 ```bash
 node ~/code/harness-viz/bin/harness-viz.mjs install     # LaunchAgent com.julius.harness-viz
