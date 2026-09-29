@@ -7,9 +7,11 @@
 //   harness-viz add <path>        register a project outside ~/code
 //   harness-viz remove <path>
 //   harness-viz list
+//   harness-viz install           run at login via launchd (uninstall | status)
 
 import { createServer } from 'node:http'
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, unlinkSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { join, dirname, resolve, extname } from 'node:path'
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -115,6 +117,70 @@ function serve(port) {
   })
 }
 
+/* ---------- launchd -------------------------------------------------------- */
+// A per-user LaunchAgent: starts at login, restarts if it dies. KeepAlive + ThrottleInterval
+// means that if the port is briefly busy (another copy running), launchd simply retries.
+
+const LABEL = 'com.julius.harness-viz'
+const PLIST = join(homedir(), 'Library', 'LaunchAgents', `${LABEL}.plist`)
+const LOG = join(homedir(), 'Library', 'Logs', 'harness-viz.log')
+const uid = () => execFileSync('id', ['-u'], { encoding: 'utf8' }).trim()
+const launchctl = (...a) => {
+  try {
+    return execFileSync('launchctl', a, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  } catch (err) {
+    return String(err.stdout || '') + String(err.stderr || '')
+  }
+}
+
+function launchdInstall(port) {
+  const script = fileURLToPath(import.meta.url)
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>${LABEL}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${process.execPath}</string>
+    <string>${script}</string>
+    <string>serve</string>
+    <string>--port</string>
+    <string>${port}</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>30</integer>
+  <key>StandardOutPath</key><string>${LOG}</string>
+  <key>StandardErrorPath</key><string>${LOG}</string>
+  <key>EnvironmentVariables</key>
+  <dict><key>PATH</key><string>/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin</string></dict>
+</dict>
+</plist>
+`
+  mkdirSync(dirname(PLIST), { recursive: true })
+  launchctl('bootout', `gui/${uid()}/${LABEL}`) // replace any older version
+  writeFileSync(PLIST, xml)
+  const out = launchctl('bootstrap', `gui/${uid()}`, PLIST)
+  if (out.trim()) console.log(out.trim())
+  console.log(`installed ${PLIST}`)
+  console.log(`harness-viz will run at login → http://127.0.0.1:${port}  (log: ${LOG})`)
+}
+
+function launchdUninstall() {
+  launchctl('bootout', `gui/${uid()}/${LABEL}`)
+  if (existsSync(PLIST)) unlinkSync(PLIST)
+  console.log(`removed ${LABEL}`)
+}
+
+async function launchdStatus(port) {
+  const installed = existsSync(PLIST)
+  const loaded = !/could not find/i.test(launchctl('print', `gui/${uid()}/${LABEL}`))
+  const up = await fetch(`http://127.0.0.1:${port}/api/projects`).then((r) => r.ok, () => false)
+  console.log(`launch agent: ${installed ? (loaded ? 'installed, loaded' : 'installed, not loaded') : 'not installed'}`)
+  console.log(`server:       ${up ? `answering on http://127.0.0.1:${port}` : 'not answering'}`)
+}
+
 /* ---------- cli ------------------------------------------------------------ */
 
 const [cmd = 'serve', ...args] = process.argv.slice(2)
@@ -149,6 +215,15 @@ switch (cmd) {
   }
   case 'list':
     for (const p of projects()) console.log(p)
+    break
+  case 'install':
+    launchdInstall(Number(flag('port', 4545)))
+    break
+  case 'uninstall':
+    launchdUninstall()
+    break
+  case 'status':
+    launchdStatus(Number(flag('port', 4545)))
     break
   default:
     console.error(`unknown command '${cmd}'. try: serve | add <path> | remove <path> | list`)

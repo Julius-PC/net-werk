@@ -26,6 +26,16 @@
     <div class="gates" id="gates"></div>
   </section>
 
+  <section class="flow" id="flow" aria-label="Current iteration">
+    <ol class="steps" id="steps">
+      <li data-stage="orient"><b>Orient</b><em></em><span>reading specs &amp; code</span></li>
+      <li data-stage="implement"><b>Implement</b><em></em><span>writing &amp; editing</span></li>
+      <li data-stage="verify"><b>Verify</b><em></em><span>tests &amp; gates</span></li>
+      <li data-stage="commit"><b>Commit</b><em></em><span>mark done &amp; commit</span></li>
+    </ol>
+    <div class="lane" id="lane" aria-live="polite"></div>
+  </section>
+
   <main class="stage">
     <div class="canvas-wrap">
       <div class="toolbar">
@@ -33,8 +43,11 @@
         <label><input type="checkbox" id="onlyHuman"> Only my tasks</label>
         <select id="phase" aria-label="Phase"><option value="">All phases</option></select>
         <button id="zoomOut" type="button" aria-label="Zoom out">−</button><button id="zoomIn" type="button" aria-label="Zoom in">+</button><button id="fit" type="button">Fit</button>
+        <label><input type="checkbox" id="follow" checked> Follow</label>
       </div>
       <svg id="graph" role="img" aria-label="Task dependency graph"></svg>
+      <svg id="fx" aria-hidden="true"></svg>
+      <div class="toast" id="toast" role="status"></div>
       <p class="hint">Scroll or drag to pan · pinch or ⌘-scroll to zoom · click a task for its brief</p>
     </div>
 
