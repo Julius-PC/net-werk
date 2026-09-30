@@ -1,6 +1,16 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "harness-viz", "runtimeExecutable": "node", "runtimeArgs": ["bin/harness-viz.mjs", "serve", "--port", "4545"], "port": 4545 }
+    {
+      "name": "net-work",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "bin/net-work.mjs",
+        "serve",
+        "--port",
+        "4545"
+      ],
+      "port": 4545
+    }
   ]
 }

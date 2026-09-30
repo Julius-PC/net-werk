@@ -1,15 +1,40 @@
 {
-  "name": "harness-viz",
-  "version": "0.2.0",
-  "description": "A live dashboard for agent-built repos: watch a spec-driven task graph and its Claude Code loop, see why it stopped, start and stop it.",
+  "name": "net-work",
+  "version": "0.3.0",
+  "description": "A live dashboard for agent-built repos \u2014 the net of tasks, and whether it's working. Watch a spec-driven task graph and its Claude Code loop, see why it stopped, start and stop it.",
   "type": "module",
-  "bin": { "harness-viz": "bin/harness-viz.mjs" },
-  "scripts": {
-    "start": "node bin/harness-viz.mjs serve",
-    "demo": "node bin/harness-viz.mjs open examples/demo"
+  "bin": {
+    "net-work": "bin/net-work.mjs"
   },
-  "files": ["bin", "lib", "public", "kit", "examples", "LICENSE", "README.md"],
-  "keywords": ["claude-code", "agents", "ralph-loop", "task-graph", "dashboard", "harness-engineering"],
-  "engines": { "node": ">=20" },
-  "license": "MIT"
+  "scripts": {
+    "start": "node bin/net-work.mjs serve",
+    "demo": "node bin/net-work.mjs open examples/demo"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "public",
+    "kit",
+    "skills",
+    "examples",
+    "LICENSE",
+    "README.md"
+  ],
+  "keywords": [
+    "claude-code",
+    "agents",
+    "ralph-loop",
+    "task-graph",
+    "dashboard",
+    "harness-engineering"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Julius-PC/net-work.git"
+  },
+  "homepage": "https://github.com/Julius-PC/net-work#readme"
 }

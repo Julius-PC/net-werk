@@ -1,4 +1,4 @@
-// harness-viz client: one project at a time, live over server-sent events.
+// net-work client: one project at a time, live over server-sent events.
 //
 // Two render paths, on purpose:
 //  - the GRAPH re-renders only when a task's status (or a filter) changes, so running
@@ -27,7 +27,7 @@ const state = {
   graphKey: '',
   prevStatus: null, // Map id -> status from the previous snapshot (null on first load)
   seen: new Set(), // loop-log lines already turned into chips/floaters
-  followed: null, // id of the doing task the camera last moved to
+  followed: null, // id of the task the Focus camera last moved to
 }
 
 /* ---------- projects & routing ---------------------------------------------- */
@@ -86,13 +86,13 @@ const statusOf = (t) => (t.status === 'todo' && t.ready ? 'ready' : t.status)
 function render(first = false) {
   const d = state.data
   if (!d) return
-  document.title = `${d.name} — Harness Viz`
+  document.title = `${d.name} — net-work`
   const navCount = document.querySelector(`#projects a[data-slug="${CSS.escape(d.name)}"] small`)
   if (navCount) navCount.textContent = `${d.counts.done ?? 0}/${d.total}`
   renderSummary(d)
   renderPhases(d)
 
-  const key = JSON.stringify([d.tasks.map((t) => [t.id, statusOf(t), t.notes ?? '']), running(d), $('hideDone').checked, $('onlyHuman').checked, $('phase').value, state.selected])
+  const key = JSON.stringify([d.tasks.map((t) => [t.id, statusOf(t), t.notes ?? '']), running(d), replanning(d), $('hideDone').checked, $('onlyHuman').checked, $('phase').value, state.selected])
   if (key !== state.graphKey) {
     renderGraph(d, first)
     state.graphKey = key
@@ -107,6 +107,10 @@ function render(first = false) {
 }
 
 const running = (d) => !!d.runner?.running
+// The loop is up but re-deriving the graph from the specs, not building a task. The task in
+// `doing` is on hold until the planner finishes and the iteration picks its task.
+const replanning = (d) => running(d) && d.runner?.run?.phase === 'replanning'
+const building = (d) => running(d) && !replanning(d)
 const nextAgentTask = (d) => d.tasks.filter((t) => t.ready && t.owner === 'agent').sort((a, b) => a.priority - b.priority || a.id.localeCompare(b.id))[0]
 
 function renderSummary(d) {
@@ -158,7 +162,14 @@ function renderRun(d) {
     : ''
   const note = (t) => (t?.notes ? `<div class="note"><span class="eyebrow">Notes on the task</span>${esc(t.notes)}</div>` : '')
   let kind, html, target
-  if (r.running && doing) {
+  if (replanning(d)) {
+    kind = 'replanning'
+    target = doing?.id ?? next?.id
+    html = `<span class="state"><i></i>Re-planning</span>
+      <div class="task-line">Re-deriving the graph from the specs</div>
+      <div class="meta">${esc(r.run.replan_reason ?? 'the loop is re-planning before it builds')} · ${[iter, `loop up ${ago(r.since)}`].filter(Boolean).join(' · ')}</div>
+      ${doing ? `<div class="why"><b>On hold: ${esc(doing.title)}</b><code>${esc(doing.id)}</code> is still in <b>doing</b> from before. Once the plan is done, the iteration resumes it — unless the re-plan dropped or changed it.</div>` : ''}`
+  } else if (r.running && doing) {
     kind = 'building'
     target = doing.id
     html = `<span class="state"><i></i>Building</span>
@@ -296,7 +307,7 @@ function renderGraph(d, first) {
     }
   }
   const doing = d.tasks.find((t) => t.status === 'doing')
-  const live = !!doing && running(d) // a `doing` task with no loop behind it is stalled, not building
+  const live = !!doing && building(d) // `doing` with no loop behind it is stalled; during a re-plan it's on hold
 
   const edges = document.createElementNS(svgNS, 'g')
   const nodes = document.createElementNS(svgNS, 'g')
@@ -325,9 +336,11 @@ function renderGraph(d, first) {
     const { x, y } = pos.get(t.id)
     const g = document.createElementNS(svgNS, 'g')
     const s = statusOf(t)
-    const stalled = t.status === 'doing' && !live
+    const stalled = t.status === 'doing' && !running(d)
+    const held = t.status === 'doing' && replanning(d)
     const cls = ['node', s]
     if (stalled) cls.push('stalled')
+    if (held) cls.push('held')
     if (t.owner === 'human') cls.push('human')
     if (t.id === state.selected) cls.push('selected')
     if (focus && !focus.has(t.id)) cls.push('dim')
@@ -337,7 +350,7 @@ function renderGraph(d, first) {
     g.setAttribute('transform', `translate(${x},${y})`)
     g.setAttribute('tabindex', '0')
     g.setAttribute('role', 'button')
-    const label = stalled ? 'doing, stalled' : s
+    const label = stalled ? 'doing, stalled' : held ? 'doing, on hold while re-planning' : s
     const needsYou = t.owner === 'human' && t.status !== 'done' && t.status !== 'dropped'
     g.setAttribute('aria-label', `${t.title} — ${label}${needsYou ? ', needs you' : ''}`)
     const hasIn = t.depends_on.some((dep) => pos.has(dep))
@@ -351,6 +364,7 @@ function renderGraph(d, first) {
       <text class="id" x="23" y="16.5">${esc(clip(t.id, 30))}</text>
       ${t.status === 'done' ? `<text class="mark-done" x="${NODE_W - 12}" y="17" text-anchor="end">✓</text>` : ''}
       ${stalled ? `<text class="id" x="${NODE_W - 12}" y="16.5" text-anchor="end" style="fill:var(--stalled)">stalled</text>` : ''}
+      ${held ? `<text class="id" x="${NODE_W - 12}" y="16.5" text-anchor="end" style="fill:var(--ready)">on hold</text>` : ''}
       ${t.status === 'dropped' ? `<text class="id" x="${NODE_W - 12}" y="16.5" text-anchor="end">dropped</text>` : ''}
       <rect class="inner" x="6" y="24" width="${NODE_W - 12}" height="${NODE_H - 30}" rx="9"></rect>
       <text class="title" x="16" y="${24 + (NODE_H - 30) / 2 + 4.5}">${esc(clip(t.title, 34))}</text>
@@ -369,15 +383,10 @@ function renderGraph(d, first) {
   svg.append(edges, nodes)
   // Extra room below for the dock that floats over the bottom of the canvas.
   state.bounds = { x: -60, y: -80, w: Math.max(width, 400) + 150, h: Math.max(height, 200) + 280 }
+  if (first) state.openFocus = true
   if (!state.fitted || !state.view) {
     fit()
-    // Open zoomed in on the work, not on a map too small to read: the task in doing, else the
-    // next task the agent would pick. Fit (⤢) still shows the whole graph.
-    const target = first && (doing ?? nextAgentTask(d) ?? tasks.find((t) => statusOf(t) === 'ready'))
-    if (target && pos.has(target.id)) {
-      if (live) state.followed = target.id
-      centerOn(pos.get(target.id), true)
-    }
+    openFocus()
   } else applyView()
 
   // One-shot effects on the overlay layer, which survives graph re-renders.
@@ -389,10 +398,23 @@ function renderGraph(d, first) {
   }
 
   // Follow the build: glide to a newly started task.
-  if (live && $('follow').checked && state.followed !== doing.id && pos.has(doing.id)) {
+  if (live && $('focus').checked && state.followed !== doing.id && pos.has(doing.id)) {
     state.followed = doing.id
     centerOn(pos.get(doing.id))
   }
+}
+
+// Open zoomed in on the work, not on a map too small to read: the task in doing, else the next
+// task the agent would pick. Fit (⤢) still shows the whole graph. If the canvas has no size yet
+// (a hidden tab or pane), this waits until the ResizeObserver below sees one.
+function openFocus() {
+  const d = state.data
+  if (!state.openFocus || !state.view || !d) return
+  state.openFocus = false
+  const target = d.tasks.find((t) => t.status === 'doing') ?? nextAgentTask(d) ?? d.tasks.find((t) => statusOf(t) === 'ready')
+  if (!target || !state.pos.has(target.id)) return
+  if (building(d) && target.status === 'doing') state.followed = target.id
+  centerOn(state.pos.get(target.id), true)
 }
 
 const clip = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s)
@@ -458,7 +480,7 @@ function renderFlow(d, first) {
   steps.classList.toggle('idle', !active)
   const r = d.runner ?? {}
   $('flow').classList.toggle('stopped', !r.running && !!r.stop)
-  $('flowLabel').textContent = r.running ? (finished ? 'Iteration finished' : 'Iteration in progress') : d.loop ? 'Last iteration' : 'Iteration'
+  $('flowLabel').textContent = replanning(d) ? 'Re-planning the graph' : r.running ? (finished ? 'Iteration finished' : 'Iteration in progress') : d.loop ? 'Last iteration' : 'Iteration'
   $('flowMeta').textContent = r.run?.iteration
     ? `${r.run.iteration}${r.run.max ? `/${r.run.max}` : ''}${r.running ? '' : r.stop ? ` · ${stopShort(r.stop)}` : ''}`
     : d.loop ? '' : 'no loop log yet'
@@ -490,7 +512,7 @@ function renderFlow(d, first) {
   }
   while (lane.children.length > 16) lane.firstChild.remove()
 
-  if (!first && running(d)) {
+  if (!first && building(d)) {
     const doing = d.tasks.find((t) => t.status === 'doing')
     const p = doing && state.pos.get(doing.id)
     fresh.filter((ev) => ev.kind !== 'say').slice(-6).forEach((ev, i) => {
@@ -542,8 +564,11 @@ function toast(text, kind = '') {
 function fit() {
   const r = $('graph').getBoundingClientRect()
   const b = state.bounds
-  if (!b || !r.width) return
+  // The canvas can be 0×0 for a moment (before layout, or while hidden); dividing by that gives
+  // Infinity/NaN, which the SVG rejects as a viewBox. Wait for a real size instead.
+  if (!b || !r.width || !r.height || !b.w || !b.h) return
   const scale = Math.max(b.w / r.width, b.h / r.height)
+  if (!Number.isFinite(scale) || scale <= 0) return
   const w = r.width * scale, h = r.height * scale
   state.view = { x: b.x - (w - b.w) / 2, y: b.y - (h - b.h) / 2, w, h }
   state.fitted = true
@@ -552,6 +577,7 @@ function fit() {
 
 const applyView = () => {
   const v = state.view
+  if (!v || ![v.x, v.y, v.w, v.h].every(Number.isFinite) || v.w <= 0 || v.h <= 0) return
   const vb = `${v.x} ${v.y} ${v.w} ${v.h}`
   $('graph').setAttribute('viewBox', vb)
   $('fx').setAttribute('viewBox', vb)
@@ -560,6 +586,7 @@ const applyView = () => {
 function centerOn(p, instant = false) {
   const v = state.view
   const r = $('graph').getBoundingClientRect()
+  if (!v || !r.width || !r.height) return
   // Zoom in until a node is about 210px wide — readable — but never zoom out from where the
   // user is. The task sits a little above centre, clear of the dock.
   const w = Math.min(v.w, (r.width / 210) * NODE_W)
@@ -570,7 +597,9 @@ function centerOn(p, instant = false) {
 }
 
 function tweenView(to, ms = 900) {
-  if (reducedMotion) { state.view = to; return applyView() }
+  // No glide when motion is reduced, or when the page is hidden (no animation frames run there,
+  // so a tween would leave the camera where it was until you come back).
+  if (reducedMotion || document.hidden) { state.view = to; return applyView() }
   const from = { ...state.view }
   const t0 = performance.now()
   const ease = (t) => 1 - Math.pow(1 - t, 3)
@@ -588,6 +617,7 @@ function tweenView(to, ms = 900) {
   let drag = null
   svg.addEventListener('wheel', (e) => {
     e.preventDefault()
+    setFocus(false)
     const r = svg.getBoundingClientRect()
     const v = state.view
     // Two-finger scroll pans; pinch (which arrives as ctrlKey) or ⌘/ctrl + wheel zooms.
@@ -610,7 +640,7 @@ function tweenView(to, ms = 900) {
   svg.addEventListener('pointermove', (e) => {
     if (!drag) return
     const r = svg.getBoundingClientRect()
-    if (Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) > 3) drag.moved = true
+    if (!drag.moved && Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) > 3) { drag.moved = true; setFocus(false) }
     state.view = { ...drag.v, x: drag.v.x - ((e.clientX - drag.x) / r.width) * drag.v.w, y: drag.v.y - ((e.clientY - drag.y) / r.height) * drag.v.h }
     applyView()
   })
@@ -673,7 +703,7 @@ document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('cli
 function renderStats(d) {
   const r = d.runner ?? {}
   const rows = [
-    ['loop', r.running ? `running · pid ${r.pid}` : r.stop ? stopShort(r.stop) : d.loop ? 'stopped' : 'never run'],
+    ['loop', r.running ? `${replanning(d) ? 're-planning' : 'running'} · pid ${r.pid}` : r.stop ? stopShort(r.stop) : d.loop ? 'stopped' : 'never run'],
     ['iter', r.run?.iteration ? `${r.run.iteration}${r.run.max ? `/${r.run.max}` : ''} · ${r.run.mode ?? ''}` : '—'],
     ['head', d.commits[0]?.hash ?? '—'],
   ]
@@ -709,19 +739,42 @@ function ago(iso) {
 /* ---------- controls --------------------------------------------------------- */
 
 for (const id of ['hideDone', 'onlyHuman', 'phase']) $(id).addEventListener('change', () => { state.fitted = false; state.graphKey = ''; render() })
-$('fit').addEventListener('click', fit)
+$('fit').addEventListener('click', () => { setFocus(false); fit() })
 const zoomBy = (k) => {
+  setFocus(false)
   const v = state.view
   const cx = v.x + v.w / 2, cy = v.y + v.h / 2
   tweenView({ x: cx - (v.w * k) / 2, y: cy - (v.h * k) / 2, w: v.w * k, h: v.h * k }, 250)
 }
 $('zoomIn').addEventListener('click', () => zoomBy(0.75))
 $('zoomOut').addEventListener('click', () => zoomBy(1.33))
-$('follow').addEventListener('change', () => {
-  const doing = state.data?.tasks.find((t) => t.status === 'doing')
-  if ($('follow').checked && doing && running(state.data) && state.pos.has(doing.id)) { state.followed = doing.id; centerOn(state.pos.get(doing.id)) }
-})
-window.addEventListener('resize', () => state.data && fit())
+
+// Focus is a toggle: switching it on glides to the task that matters — the one in doing (running
+// or stalled), else the next the agent would pick — and keeps following the build as it moves to
+// new tasks. Moving the camera yourself (drag, scroll, pinch, zoom, fit) switches it off.
+function setFocus(on) {
+  const box = $('focus')
+  if (box.checked === on) return
+  box.checked = on
+  if (on) focusNow()
+}
+function focusNow() {
+  const d = state.data
+  if (!d) return
+  const target = d.tasks.find((t) => t.status === 'doing') ?? nextAgentTask(d) ?? d.tasks.find((t) => statusOf(t) === 'ready')
+  if (!target || !state.pos.has(target.id)) return
+  state.followed = target.id
+  centerOn(state.pos.get(target.id))
+}
+$('focus').addEventListener('change', () => { if ($('focus').checked) focusNow() })
+// Watch the canvas itself rather than the window: it can go from 0×0 to a real size without the
+// window resizing (a hidden pane or tab being shown), and the first real size is when to frame it.
+new ResizeObserver(() => {
+  if (!state.data) return
+  if (!state.view) { fit(); openFocus() }
+  else if ($('focus').checked) focusNow()
+  else fit()
+}).observe($('graph'))
 setInterval(() => state.data && (renderSummary(state.data), renderFlow(state.data, false)), 15000)
 setInterval(() => renderNav().catch(() => {}), 15000)
 
@@ -759,6 +812,7 @@ function renderControls(d) {
   const bar = $('runState').querySelector('.track span')
   if (pending === 'start') label.innerHTML = '<b>Starting…</b>'
   else if (pending === 'stop') label.innerHTML = '<b>Stopping…</b> signalling the loop and its agent'
+  else if (on && replanning(d)) label.innerHTML = `<i></i><b>Re-planning</b> · before iteration ${iter}${max ? ` of ${max}` : ''} · ${ago(r.since)}`
   else if (on) label.innerHTML = `<i></i><b>In progress</b> · ${r.run?.mode ?? 'loop'} · iteration ${iter}${max ? ` of ${max}` : ''} · ${ago(r.since)}`
   else if (r.stop) label.innerHTML = `<b>Stopped</b> · ${esc(stopShort(r.stop))} · ${ago(r.stop.at)} ago`
   else label.innerHTML = c.script ? '<b>Not running</b> · press play to start the loop' : '<b>Not running</b>'
@@ -832,7 +886,7 @@ async function loopAction(action, payload) {
   try {
     const res = await fetch(`/api/projects/${encodeURIComponent(slug)}/loop/${action}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-harness-viz': '1' },
+      headers: { 'content-type': 'application/json', 'x-net-work': '1' },
       body: JSON.stringify(payload ?? {}),
     })
     const out = await res.json().catch(() => ({}))

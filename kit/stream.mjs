@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Turns `claude -p --output-format stream-json` into short, human-readable lines, so the loop
-// log (harness/.loop.log, tailed by harness-viz) shows what the agent is doing as it does it,
+// log (harness/.loop.log, tailed by net-work) shows what the agent is doing as it does it,
 // instead of nothing until the iteration ends.
 //
 //   claude -p "..." --output-format stream-json --verbose | node harness/bin/stream.mjs

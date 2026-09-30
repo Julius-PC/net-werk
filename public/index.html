@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Harness Viz</title>
+  <title>net-work</title>
   <link rel="preload" href="/fonts/outfit-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/style.css">
   <script>try { const t = localStorage.getItem('theme'); if (t) document.documentElement.dataset.theme = t } catch {}</script>
 </head>
 <body>
   <header class="top">
-    <div class="brand" aria-label="harness viz"><i class="mark"></i><span>harness</span></div>
+    <div class="brand" aria-label="net-work"><i class="mark"></i><span>net-work</span></div>
     <nav id="projects" aria-label="Projects"></nav>
     <div class="crumb">
       <strong id="pname">—</strong>
@@ -58,7 +58,7 @@
         <button class="tb" id="zoomOut" type="button" aria-label="Zoom out" title="Zoom out">−</button>
         <button class="tb" id="zoomIn" type="button" aria-label="Zoom in" title="Zoom in">+</button>
         <button class="tb" id="fit" type="button" aria-label="Fit the whole graph" title="Fit the whole graph">⤢</button>
-        <label class="follow" title="Follow the task being built"><input type="checkbox" id="follow" checked><span class="tb" aria-hidden="true">◎</span><span class="sr">Follow the task being built</span></label>
+        <label class="follow" title="Focus: keep the camera on the task being built. Moving the graph yourself turns it off."><input type="checkbox" id="focus" checked><span class="tb" aria-hidden="true">◎</span><span class="sr">Focus on the task being built</span></label>
       </div>
 
       <div class="pop" id="startPop" role="dialog" aria-labelledby="startTitle" hidden>
