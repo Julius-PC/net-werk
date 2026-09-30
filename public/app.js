@@ -1,4 +1,4 @@
-// net-work client: one project at a time, live over server-sent events.
+// net-werk client: one project at a time, live over server-sent events.
 //
 // Two render paths, on purpose:
 //  - the GRAPH re-renders only when a task's status (or a filter) changes, so running
@@ -86,7 +86,7 @@ const statusOf = (t) => (t.status === 'todo' && t.ready ? 'ready' : t.status)
 function render(first = false) {
   const d = state.data
   if (!d) return
-  document.title = `${d.name} — net-work`
+  document.title = `${d.name} — net-werk`
   const navCount = document.querySelector(`#projects a[data-slug="${CSS.escape(d.name)}"] small`)
   if (navCount) navCount.textContent = `${d.counts.done ?? 0}/${d.total}`
   renderSummary(d)
@@ -631,21 +631,31 @@ function tweenView(to, ms = 900) {
     state.view = { x: px - (px - v.x) * k, y: py - (py - v.y) * k, w: v.w * k, h: v.h * k }
     applyView()
   }, { passive: false })
+  // A drag can start anywhere, nodes included — on a dense graph that's most of the canvas. It
+  // only becomes a pan once the pointer has moved 3px; until then a press on a node is a click.
+  // Capture starts with the pan, so a plain click still reaches the node's own handler.
   svg.addEventListener('pointerdown', (e) => {
-    if (e.target.closest('.node')) return
-    drag = { x: e.clientX, y: e.clientY, v: { ...state.view }, moved: false }
-    svg.classList.add('dragging')
-    svg.setPointerCapture(e.pointerId)
+    if (e.button !== 0 || !state.view) return
+    drag = { x: e.clientX, y: e.clientY, v: { ...state.view }, moved: false, onNode: !!e.target.closest('.node'), id: e.pointerId }
   })
   svg.addEventListener('pointermove', (e) => {
     if (!drag) return
     const r = svg.getBoundingClientRect()
-    if (!drag.moved && Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) > 3) { drag.moved = true; setFocus(false) }
+    if (!drag.moved) {
+      if (Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) <= 3) return
+      drag.moved = true
+      svg.classList.add('dragging')
+      svg.setPointerCapture(drag.id)
+      setFocus(false)
+    }
     state.view = { ...drag.v, x: drag.v.x - ((e.clientX - drag.x) / r.width) * drag.v.w, y: drag.v.y - ((e.clientY - drag.y) / r.height) * drag.v.h }
     applyView()
   })
+  const endDrag = () => { drag = null; svg.classList.remove('dragging') }
+  svg.addEventListener('pointercancel', endDrag)
   svg.addEventListener('pointerup', () => {
-    if (drag && !drag.moved && state.selected) {
+    // A click on empty canvas clears the selection; a click on a node is the node's to handle.
+    if (drag && !drag.moved && !drag.onNode && state.selected) {
       state.selected = null
       $('detail').className = 'detail empty'
       $('detail').textContent = 'Click a task in the graph to see its brief, acceptance and history.'
@@ -886,7 +896,7 @@ async function loopAction(action, payload) {
   try {
     const res = await fetch(`/api/projects/${encodeURIComponent(slug)}/loop/${action}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-net-work': '1' },
+      headers: { 'content-type': 'application/json', 'x-net-werk': '1' },
       body: JSON.stringify(payload ?? {}),
     })
     const out = await res.json().catch(() => ({}))

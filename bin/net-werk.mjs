@@ -1,21 +1,22 @@
 #!/usr/bin/env node
-// net-work — a live view of any repo built by the harness (specs + task graph + loop): the net
+// net-werk — a live view of any repo built by the harness (specs + task graph + loop): the net
 // of tasks, and whether it's working.
 // Zero dependencies: node's http server, server-sent events, and one static page. It reads
 // projects; the only things it changes are starting/stopping a project's own loop.sh from the
 // page (off with --read-only) and one "stopped" line in that loop's log.
 //
-//   net-work                      serve on http://127.0.0.1:4545 (auto-discovers ~/code/*/harness)
-//   net-work serve --port 4600 [--read-only]
-//   net-work open [path]          start the server if needed and open that project's page
-//   net-work info [path]          plain-text state: progress, doing, loop, why it stopped
-//   net-work start [path] [--mode build] [--iterations 10]
-//   net-work stop [path]
-//   net-work add <path> | remove <path> | list
-//   net-work install              run at login via launchd (uninstall | status)
+//   net-werk                      serve on http://127.0.0.1:4545 (auto-discovers ~/code/*/harness)
+//   net-werk serve --port 4600 [--read-only]
+//   net-werk open [path]          start the server if needed and open that project's page
+//   net-werk info [path]          plain-text state: progress, doing, loop, why it stopped
+//   net-werk init [path]          copy the harness kit (engine, loop, gates, prompts) into a project
+//   net-werk start [path] [--mode build] [--iterations 10]
+//   net-werk stop [path]
+//   net-werk add <path> | remove <path> | list
+//   net-werk install              run at login via launchd (uninstall | status)
 
 import { createServer } from 'node:http'
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, unlinkSync, openSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, unlinkSync, openSync, copyFileSync, statSync, chmodSync, appendFileSync } from 'node:fs'
 import { execFileSync, spawn } from 'node:child_process'
 import { join, dirname, resolve, extname } from 'node:path'
 import { homedir } from 'node:os'
@@ -25,15 +26,16 @@ import { controls, startLoop, stopLoop } from '../lib/control.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const PUBLIC = join(HERE, '..', 'public')
-// NET_WORK_CONFIG points at a different registry, e.g. to try fixtures without touching yours.
-// (This tool used to be called harness-viz; its old config folder and env names still work.)
+// NET_WERK_CONFIG points at a different registry, e.g. to try fixtures without touching yours.
+// (This tool used to be called harness-viz, then net-work; the old config folder and env names
+// still work.)
 const LEGACY_DIR = join(homedir(), '.config', 'harness-viz')
-const CONFIG_DIR = process.env.NET_WORK_CONFIG ?? process.env.HARNESS_VIZ_CONFIG
-  ?? (existsSync(LEGACY_DIR) && !existsSync(join(homedir(), '.config', 'net-work')) ? LEGACY_DIR : join(homedir(), '.config', 'net-work'))
+const CONFIG_DIR = process.env.NET_WERK_CONFIG ?? process.env.NET_WORK_CONFIG ?? process.env.HARNESS_VIZ_CONFIG
+  ?? (existsSync(LEGACY_DIR) && !existsSync(join(homedir(), '.config', 'net-werk')) ? LEGACY_DIR : join(homedir(), '.config', 'net-werk'))
 const REGISTRY = join(CONFIG_DIR, 'projects.json')
-// Folders whose immediate subfolders are checked for harness/graph/. NET_WORK_DISCOVER takes a
+// Folders whose immediate subfolders are checked for harness/graph/. NET_WERK_DISCOVER takes a
 // PATH-style list; the default is ~/code.
-const DISCOVER = (process.env.NET_WORK_DISCOVER ?? process.env.HARNESS_VIZ_DISCOVER ?? join(homedir(), 'code')).split(':').filter(Boolean)
+const DISCOVER = (process.env.NET_WERK_DISCOVER ?? process.env.NET_WORK_DISCOVER ?? process.env.HARNESS_VIZ_DISCOVER ?? join(homedir(), 'code')).split(':').filter(Boolean)
 
 /* ---------- registry ------------------------------------------------------- */
 
@@ -71,7 +73,7 @@ function json(res, status, body) {
 // stops cross-site requests, because a page can't send it without a CORS preflight we never answer.
 const hostOk = (req, port) => [`127.0.0.1:${port}`, `localhost:${port}`].includes(req.headers.host)
 const writeOk = (req) =>
-  req.headers['x-net-work'] === '1' && (!req.headers.origin || req.headers.origin === `http://${req.headers.host}`)
+  req.headers['x-net-werk'] === '1' && (!req.headers.origin || req.headers.origin === `http://${req.headers.host}`)
 
 async function body(req) {
   let raw = ''
@@ -144,20 +146,20 @@ function serve(port, readOnly) {
     res.writeHead(200, { 'content-type': TYPES[extname(abs)] ?? 'text/plain', 'cache-control': 'no-store' })
     res.end(readFileSync(abs))
   })
-  // A second launch is usually harmless: say whether net-work already owns the port.
+  // A second launch is usually harmless: say whether net-werk already owns the port.
   server.on('error', async (err) => {
     if (err.code !== 'EADDRINUSE') throw err
     const ours = await fetch(`http://127.0.0.1:${port}/api/projects`).then((r) => r.ok, () => false)
     if (ours) {
-      console.log(`net-work is already running → http://127.0.0.1:${port}`)
+      console.log(`net-werk is already running → http://127.0.0.1:${port}`)
       process.exit(0)
     }
-    console.error(`port ${port} is taken by something else — try: net-work serve --port ${port + 1}`)
+    console.error(`port ${port} is taken by something else — try: net-werk serve --port ${port + 1}`)
     process.exit(1)
   })
   // Loopback only: this shows private project plans.
   server.listen(port, '127.0.0.1', () => {
-    console.log(`net-work → http://127.0.0.1:${port}`)
+    console.log(`net-werk → http://127.0.0.1:${port}`)
     for (const p of projects()) console.log(`  · ${p}`)
   })
 }
@@ -166,9 +168,9 @@ function serve(port, readOnly) {
 // A per-user LaunchAgent: starts at login, restarts if it dies. KeepAlive + ThrottleInterval
 // means that if the port is briefly busy (another copy running), launchd simply retries.
 
-const LABEL = 'dev.net-work'
+const LABEL = 'dev.net-werk'
 const PLIST = join(homedir(), 'Library', 'LaunchAgents', `${LABEL}.plist`)
-const LOG = join(homedir(), 'Library', 'Logs', 'net-work.log')
+const LOG = join(homedir(), 'Library', 'Logs', 'net-werk.log')
 const uid = () => execFileSync('id', ['-u'], { encoding: 'utf8' }).trim()
 const launchctl = (...a) => {
   try {
@@ -209,7 +211,7 @@ function launchdInstall(port, readOnly) {
   const out = launchctl('bootstrap', `gui/${uid()}`, PLIST)
   if (out.trim()) console.log(out.trim())
   console.log(`installed ${PLIST}`)
-  console.log(`net-work will run at login → http://127.0.0.1:${port}  (log: ${LOG})`)
+  console.log(`net-werk will run at login → http://127.0.0.1:${port}  (log: ${LOG})`)
 }
 
 function launchdUninstall() {
@@ -277,7 +279,7 @@ async function loopCommand(action, root, port, payload = {}) {
   await ensureServer(port)
   const res = await fetch(`${base(port)}/api/projects/${encodeURIComponent(slugOf(root))}/loop/${action}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-net-work': '1' },
+    headers: { 'content-type': 'application/json', 'x-net-werk': '1' },
     body: JSON.stringify(payload),
   })
   const out = await res.json().catch(() => ({}))
@@ -290,11 +292,65 @@ async function loopCommand(action, root, port, payload = {}) {
     : `■ stopped (${out.stopped} process${out.stopped === 1 ? '' : 'es'})`)
 }
 
+// What a harness needs before a loop can run: at least one task, a loop script and a build prompt.
+function scaffolding(root) {
+  const missing = []
+  const graph = join(root, 'harness', 'graph')
+  const tasks = existsSync(graph) ? readdirSync(graph).filter((f) => f.endsWith('.md') && f !== 'README.md') : []
+  if (!existsSync(graph)) missing.push('harness/graph/')
+  else if (!tasks.length) missing.push('tasks in harness/graph/')
+  if (!existsSync(join(root, 'harness', 'bin', 'loop.sh'))) missing.push('harness/bin/loop.sh')
+  if (!existsSync(join(root, 'harness', 'prompts', 'build.md'))) missing.push('harness/prompts/build.md')
+  return missing
+}
+
+// `init` copies the harness kit (kit/harness/) into a project: the graph engine, the loop, the
+// log formatter, the gates, the task schema and the two prompts. It never overwrites a file that
+// is already there. The specs, the tasks and the project rules in the prompts are the plan's to
+// write — init only lays down the machinery.
+function init(root) {
+  if (!existsSync(root)) {
+    console.error(`${root} does not exist`)
+    process.exit(1)
+  }
+  const kit = join(HERE, '..', 'kit', 'harness')
+  const made = []
+  const kept = []
+  const copy = (from, to) => {
+    for (const name of readdirSync(from)) {
+      const src = join(from, name)
+      const dst = join(to, name)
+      if (statSync(src).isDirectory()) { mkdirSync(dst, { recursive: true }); copy(src, dst); continue }
+      if (existsSync(dst)) { kept.push(dst); continue }
+      copyFileSync(src, dst)
+      if (/\.(sh|mjs)$/.test(name) && dirname(dst).endsWith(join('harness', 'bin'))) chmodSync(dst, 0o755)
+      made.push(dst)
+    }
+  }
+  mkdirSync(join(root, 'harness', 'graph'), { recursive: true })
+  mkdirSync(join(root, 'specs'), { recursive: true })
+  copy(kit, join(root, 'harness'))
+  const ignore = join(root, '.gitignore')
+  const ignored = existsSync(ignore) ? readFileSync(ignore, 'utf8') : ''
+  if (!ignored.split('\n').includes('harness/.loop.log')) {
+    appendFileSync(ignore, `${ignored && !ignored.endsWith('\n') ? '\n' : ''}# the loop's live log, tailed by net-werk\nharness/.loop.log\n`)
+    made.push(ignore + ' (+ harness/.loop.log)')
+  }
+  const rel = (p) => p.slice(root.length + 1)
+  console.log(`scaffolded the harness kit into ${root}`)
+  for (const p of made) console.log(`  + ${rel(p)}`)
+  for (const p of kept) console.log(`  = ${rel(p)} (already there, kept)`)
+  try { execFileSync('git', ['-C', root, 'rev-parse', '--git-dir'], { stdio: 'ignore' }) } catch { console.log('  ! not a git repository yet — run `git init`: the loop measures progress in commits') }
+  console.log('next: write specs/, the tasks in harness/graph/, the project rules in harness/prompts/*.md')
+  console.log('      and the gates in harness/bin/verify.mjs; then validate, verify and commit as `plan: …`')
+}
+
 // A plain-text read of a project, for terminals and for agents: what's done, what's in doing,
 // whether a loop is running, why it last stopped, and what's waiting on a human.
 function info(root) {
-  if (!isHarness(root)) {
-    console.log(`${root}: no harness/graph/ — not scaffolded yet`)
+  const missing = scaffolding(root)
+  if (!isHarness(root) || missing.includes('tasks in harness/graph/')) {
+    console.log(`${root}: not scaffolded — missing ${missing.join(', ')}`)
     process.exit(1)
   }
   const s = snapshot(root)
@@ -311,7 +367,7 @@ function info(root) {
     `ready for the agent: ${ready.filter((t) => t.owner === 'agent').map((t) => t.id).join(', ') || '—'}`,
     `waiting on you: ${ready.filter((t) => t.owner === 'human').map((t) => t.id).join(', ') || '—'}`,
     ...s.tasks.filter((t) => t.status === 'blocked').map((t) => `blocked: ${t.id} — ${t.notes ?? 'no note'}`),
-    `can start: ${c.script ? `yes — modes ${c.modes.join(', ') || '(none: add harness/prompts/<mode>.md)'}` : 'no harness/bin/loop.sh'}`,
+    `can start: ${missing.length ? `no — missing ${missing.join(', ')}` : `yes — modes ${c.modes.join(', ')}`}`,
   ]
   if (s.problems.length) lines.push(`graph problems: ${s.problems.join('; ')}`)
   console.log(lines.join('\n'))
@@ -358,6 +414,9 @@ switch (cmd) {
   case 'open':
     openProject(rootArg(), PORT, args.includes('--no-browser'))
     break
+  case 'init':
+    init(rootArg())
+    break
   case 'info':
     info(rootArg())
     break
@@ -377,6 +436,6 @@ switch (cmd) {
     launchdStatus(PORT)
     break
   default:
-    console.error(`unknown command '${cmd}'. try: serve | open | info | start | stop | add | remove | list | install | uninstall | status`)
+    console.error(`unknown command '${cmd}'. try: serve | open | init | info | start | stop | add | remove | list | install | uninstall | status`)
     process.exit(2)
 }

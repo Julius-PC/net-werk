@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Harness task node",
+  "description": "One node in the build graph. Lives as YAML frontmatter in harness/graph/<id>.md; the markdown body is the brief the agent reads.",
+  "type": "object",
+  "required": [
+    "id",
+    "title",
+    "phase",
+    "status",
+    "owner",
+    "acceptance"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "description": "Unique kebab-case id. Must match the filename."
+    },
+    "title": {
+      "type": "string",
+      "minLength": 4,
+      "maxLength": 80,
+      "description": "Imperative one-liner: 'Define content collections'."
+    },
+    "phase": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 24,
+      "description": "Coarse grouping shown in `status` (scaffold, content, design, deploy, \u2026 \u2014 any names). Ordering comes from depends_on, not from phase."
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "todo",
+        "doing",
+        "done",
+        "blocked",
+        "dropped"
+      ],
+      "description": "doing is a lock: at most one task may be 'doing' at a time. dropped = superseded by a change of direction: terminal, but NOT done \u2014 nothing may depend on a dropped task, and notes must say what replaced it."
+    },
+    "owner": {
+      "type": "string",
+      "enum": [
+        "agent",
+        "human"
+      ],
+      "description": "human = a gate the loop cannot pass (credentials, sign-ups, money, taste, DNS). The loop skips these and reports them."
+    },
+    "depends_on": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+      },
+      "default": [],
+      "description": "Task ids that must be 'done' first. Edges of the DAG; cycles are a validation error."
+    },
+    "priority": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5,
+      "default": 3,
+      "description": "Tie-breaker among ready tasks. 1 is most important."
+    },
+    "acceptance": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 8
+      },
+      "description": "Observable conditions. Each must be checkable by a human reading the diff, or by 'verify'."
+    },
+    "verify": {
+      "type": "string",
+      "description": "Shell command that must exit 0 for this task. Runs in the repo root."
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "description": "Paths this task is expected to create or change. Used to spot tasks that claim done but touched nothing."
+    },
+    "spec": {
+      "type": "string",
+      "description": "Path to the spec section this task implements. Tasks without a spec tend to drift."
+    },
+    "notes": {
+      "type": "string",
+      "description": "Discoveries from the attempt: why it was harder than expected, what the next task needs to know."
+    }
+  }
+}

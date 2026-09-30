@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# DEMO loop — a simulation for trying net-work's play/stop controls. It prints the same log
+# DEMO loop — a simulation for trying net-werk's play/stop controls. It prints the same log
 # format as a real harness loop (see the README) but never calls claude and changes no files
 # except harness/.loop.log. A real loop.sh runs one `claude -p` per iteration instead.
 set -uo pipefail

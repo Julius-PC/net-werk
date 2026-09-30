@@ -2,10 +2,10 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "net-work",
+      "name": "net-werk",
       "runtimeExecutable": "node",
       "runtimeArgs": [
-        "bin/net-work.mjs",
+        "bin/net-werk.mjs",
         "serve",
         "--port",
         "4545"
