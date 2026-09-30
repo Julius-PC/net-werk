@@ -1,10 +1,15 @@
 {
   "name": "harness-viz",
-  "version": "0.1.0",
-  "description": "Live, read-only view of any repo built by the harness (specs + task graph + loop).",
+  "version": "0.2.0",
+  "description": "A live dashboard for agent-built repos: watch a spec-driven task graph and its Claude Code loop, see why it stopped, start and stop it.",
   "type": "module",
   "bin": { "harness-viz": "bin/harness-viz.mjs" },
-  "scripts": { "start": "node bin/harness-viz.mjs serve" },
+  "scripts": {
+    "start": "node bin/harness-viz.mjs serve",
+    "demo": "node bin/harness-viz.mjs open examples/demo"
+  },
+  "files": ["bin", "lib", "public", "kit", "examples", "LICENSE", "README.md"],
+  "keywords": ["claude-code", "agents", "ralph-loop", "task-graph", "dashboard", "harness-engineering"],
   "engines": { "node": ">=20" },
   "license": "MIT"
 }

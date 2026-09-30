@@ -1,0 +1,38 @@
+
+════ 2026-09-28 09:14:02 ════
+── loop: mode=build max=10 ──
+
+── iteration 1/10 ──────────────────────────────────
+09:14:05  agent started (claude)
+09:14:08  » Orienting: reading the rules and the next task.
+09:14:08  ▸ $ node harness/bin/graph.mjs next
+09:14:11  ▸ read specs/site.md
+09:14:40  ▸ $ node harness/bin/graph.mjs set contact-link doing
+09:16:02  ▸ edit src/layouts/Base.astro
+09:17:30  ▸ $ npm run build
+09:17:52  ▸ $ node harness/bin/graph.mjs set contact-link done
+09:17:58  ▸ $ git commit -m "task(contact-link): Add a contact link to the footer"
+09:18:03  agent finished: success in 238s, 31 turns
+
+── iteration 2/10 ──────────────────────────────────
+09:18:06  agent started (claude)
+09:18:09  ▸ $ node harness/bin/graph.mjs next
+09:18:30  ▸ $ node harness/bin/graph.mjs set search-index doing
+09:21:12  ▸ write src/search/index.js
+09:24:40  ▸ $ npm run build
+09:25:02  ✗ search: 0 results for "garlic" — ingredients are not indexed
+09:27:15  ▸ edit harness/graph/search-index.md
+09:27:30  agent finished: error_max_turns in 564s, 120 turns
+no commit this iteration (1x in a row)
+
+── iteration 3/10 ──────────────────────────────────
+09:27:33  agent started (claude)
+09:27:36  » Resuming search-index from its notes.
+09:27:37  ▸ read harness/graph/search-index.md
+09:29:50  ▸ edit src/search/index.js
+09:33:10  ▸ $ npm run build
+09:33:31  ✗ search: 0 results for "garlic"
+09:35:02  agent finished: error_max_turns in 449s, 120 turns
+no commit this iteration (2x in a row)
+two iterations without progress — stopping rather than burning tokens.
+look at: node harness/bin/graph.mjs status

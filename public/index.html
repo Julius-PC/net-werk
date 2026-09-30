@@ -4,65 +4,106 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Harness Viz</title>
+  <link rel="preload" href="/fonts/outfit-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/style.css">
+  <script>try { const t = localStorage.getItem('theme'); if (t) document.documentElement.dataset.theme = t } catch {}</script>
 </head>
 <body>
   <header class="top">
-    <div class="brand">harness<span>viz</span></div>
+    <div class="brand" aria-label="harness viz"><i class="mark"></i><span>harness</span></div>
     <nav id="projects" aria-label="Projects"></nav>
+    <div class="crumb">
+      <strong id="pname">—</strong>
+      <span id="psub"></span>
+    </div>
     <div class="live" id="live" title="Live connection"><i></i><span>connecting</span></div>
+    <button class="theme" id="theme" type="button" aria-label="Switch to light theme">☀</button>
   </header>
 
-  <section class="summary">
-    <div class="progress">
-      <div class="progress-head">
-        <strong id="pname">—</strong>
-        <span id="pcount">0/0 done</span>
-      </div>
+  <aside class="rail" aria-label="Status">
+    <section class="card run" id="now" aria-live="polite"></section>
+    <section class="card progress">
+      <div class="card-head"><span class="eyebrow">Progress</span><span id="pcount" class="count"></span></div>
+      <div class="big"><b id="pdone">0</b><span id="ptotal">/ 0 done</span></div>
       <div class="bar" id="bar"></div>
       <div class="legend" id="legend"></div>
+    </section>
+    <section class="card gates" id="gates"></section>
+  </aside>
+
+  <main class="canvas-wrap">
+    <div class="toolbar">
+      <label class="toggle"><input type="checkbox" id="hideDone"><span>Hide finished</span></label>
+      <label class="toggle"><input type="checkbox" id="onlyHuman"><span>Only mine</span></label>
+      <select id="phase" aria-label="Phase"><option value="">All phases</option></select>
     </div>
-    <div class="now" id="now"></div>
-    <div class="gates" id="gates"></div>
-  </section>
+    <svg id="graph" role="img" aria-label="Task dependency graph"></svg>
+    <svg id="fx" aria-hidden="true"></svg>
+    <div class="stats" id="stats"></div>
 
-  <section class="flow" id="flow" aria-label="Current iteration">
-    <ol class="steps" id="steps">
-      <li data-stage="orient"><b>Orient</b><em></em><span>reading specs &amp; code</span></li>
-      <li data-stage="implement"><b>Implement</b><em></em><span>writing &amp; editing</span></li>
-      <li data-stage="verify"><b>Verify</b><em></em><span>tests &amp; gates</span></li>
-      <li data-stage="commit"><b>Commit</b><em></em><span>mark done &amp; commit</span></li>
-    </ol>
-    <div class="lane" id="lane" aria-live="polite"></div>
-  </section>
+    <section class="dock" id="flow" aria-label="Current iteration">
+      <div class="dock-head"><span class="eyebrow" id="flowLabel">Iteration</span><span id="flowMeta"></span></div>
+      <ol class="steps" id="steps">
+        <li data-stage="orient"><b>Orient</b><em></em><span>specs &amp; code</span></li>
+        <li data-stage="implement"><b>Implement</b><em></em><span>writing</span></li>
+        <li data-stage="verify"><b>Verify</b><em></em><span>tests &amp; gates</span></li>
+        <li data-stage="commit"><b>Commit</b><em></em><span>done &amp; commit</span></li>
+      </ol>
+      <div class="lane" id="lane" aria-live="polite"></div>
 
-  <main class="stage">
-    <div class="canvas-wrap">
-      <div class="toolbar">
-        <label><input type="checkbox" id="hideDone"> Hide done</label>
-        <label><input type="checkbox" id="onlyHuman"> Only my tasks</label>
-        <select id="phase" aria-label="Phase"><option value="">All phases</option></select>
-        <button id="zoomOut" type="button" aria-label="Zoom out">−</button><button id="zoomIn" type="button" aria-label="Zoom in">+</button><button id="fit" type="button">Fit</button>
-        <label><input type="checkbox" id="follow" checked> Follow</label>
+      <div class="controls" role="toolbar" aria-label="Loop and view controls">
+        <button class="runbtn" id="runBtn" type="button" aria-haspopup="dialog" aria-expanded="false" aria-label="Start the loop"></button>
+        <div class="runstate" id="runState"><div class="l">—</div><div class="track"><span style="width:0"></span></div></div>
+        <span class="sep" aria-hidden="true"></span>
+        <button class="tb" id="zoomOut" type="button" aria-label="Zoom out" title="Zoom out">−</button>
+        <button class="tb" id="zoomIn" type="button" aria-label="Zoom in" title="Zoom in">+</button>
+        <button class="tb" id="fit" type="button" aria-label="Fit the whole graph" title="Fit the whole graph">⤢</button>
+        <label class="follow" title="Follow the task being built"><input type="checkbox" id="follow" checked><span class="tb" aria-hidden="true">◎</span><span class="sr">Follow the task being built</span></label>
       </div>
-      <svg id="graph" role="img" aria-label="Task dependency graph"></svg>
-      <svg id="fx" aria-hidden="true"></svg>
-      <div class="toast" id="toast" role="status"></div>
-      <p class="hint">Scroll or drag to pan · pinch or ⌘-scroll to zoom · click a task for its brief</p>
-    </div>
 
-    <aside class="side">
-      <div id="detail" class="panel detail empty">Select a task to see its brief, acceptance and history.</div>
-      <div class="panel">
-        <h3>Commits</h3>
-        <ol id="commits" class="commits"></ol>
+      <div class="pop" id="startPop" role="dialog" aria-labelledby="startTitle" hidden>
+        <h3 id="startTitle">Run the loop</h3>
+        <p>Each iteration is one fresh <code>claude -p</code> that does one task, verifies it and commits.</p>
+        <label class="f" id="modeLabel">Mode</label>
+        <div class="seg" id="modes" role="group" aria-labelledby="modeLabel"></div>
+        <label class="f" for="iters">Iterations</label>
+        <div class="stepper">
+          <button type="button" id="itersDown" aria-label="One fewer">−</button>
+          <input type="number" id="iters" min="1" max="200" value="10" inputmode="numeric">
+          <button type="button" id="itersUp" aria-label="One more">+</button>
+          <span class="quick"><button type="button" data-n="1">1</button><button type="button" data-n="5">5</button><button type="button" data-n="10">10</button><button type="button" data-n="20">20</button></span>
+        </div>
+        <code class="cmd" id="cmd"></code>
+        <p class="fine">It can stop sooner by itself: when only your tasks are left, or after two iterations without a commit.</p>
+        <div class="actions"><button class="btn" type="button" data-close>Cancel</button><button class="btn primary" type="button" id="startGo">Start</button></div>
       </div>
-      <div class="panel" id="loopPanel" hidden>
-        <h3>Loop log <small id="loopAge"></small></h3>
-        <pre id="loop" class="loop"></pre>
+
+      <div class="pop" id="stopPop" role="dialog" aria-labelledby="stopTitle" hidden>
+        <h3 id="stopTitle">Stop the loop?</h3>
+        <p id="stopWhat"></p>
+        <div class="actions"><button class="btn" type="button" data-close>Keep running</button><button class="btn danger" type="button" id="stopGo">Stop loop</button></div>
       </div>
-    </aside>
+    </section>
+    <div class="toast" id="toast" role="status"></div>
   </main>
+
+  <aside class="inspector" aria-label="Details">
+    <div class="tabs" role="tablist">
+      <button role="tab" data-tab="task" aria-selected="false">Task</button>
+      <button role="tab" data-tab="commits" aria-selected="true">Commits</button>
+      <button role="tab" data-tab="log" aria-selected="false">Loop log</button>
+    </div>
+    <div class="pane" data-pane="task" hidden>
+      <div id="detail" class="detail empty">Click a task in the graph to see its brief, acceptance and history.</div>
+    </div>
+    <div class="pane" data-pane="commits">
+      <ol id="commits" class="commits"></ol>
+    </div>
+    <div class="pane" data-pane="log" hidden>
+      <div class="muted small" id="loopAge"></div>
+      <pre id="loop" class="loop"></pre>
+    </div>
+  </aside>
 
   <script type="module" src="/app.js"></script>
 </body>

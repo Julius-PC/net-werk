@@ -10,10 +10,10 @@ const svgNS = 'http://www.w3.org/2000/svg'
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches
 
-const NODE_W = 236
-const NODE_H = 50
-const COL_GAP = 84
-const ROW_GAP = 12
+const NODE_W = 244
+const NODE_H = 62
+const COL_GAP = 92
+const ROW_GAP = 16
 const STAGES = ['orient', 'implement', 'verify', 'commit']
 
 const state = {
@@ -33,18 +33,7 @@ const state = {
 /* ---------- projects & routing ---------------------------------------------- */
 
 async function loadProjects() {
-  const list = await fetch('/api/projects').then((r) => r.json())
-  const nav = $('projects')
-  nav.innerHTML = list
-    .map((p) => `<a href="/p/${encodeURIComponent(p.slug)}" data-slug="${esc(p.slug)}">${esc(p.slug)} <small>${p.counts.done ?? 0}/${p.total}</small></a>`)
-    .join('')
-  nav.querySelectorAll('a').forEach((a) =>
-    a.addEventListener('click', (e) => {
-      e.preventDefault()
-      history.pushState({}, '', a.getAttribute('href'))
-      open(a.dataset.slug)
-    }),
-  )
+  const list = await renderNav()
   const fromUrl = decodeURIComponent(location.pathname.match(/^\/p\/([^/]+)/)?.[1] ?? '')
   const pick = list.find((p) => p.slug === fromUrl)?.slug ?? list[0]?.slug
   if (pick) open(pick)
@@ -54,6 +43,8 @@ function open(slug) {
   Object.assign(state, { slug, selected: null, fitted: false, graphKey: '', prevStatus: null, seen: new Set(), followed: null, data: null })
   $('lane').innerHTML = ''
   $('fx').innerHTML = ''
+  closePops()
+  pending = null
   document.querySelectorAll('#projects a').forEach((a) => a.setAttribute('aria-current', a.dataset.slug === slug ? 'page' : 'false'))
   state.source?.close()
   const live = $('live')
@@ -71,6 +62,23 @@ function open(slug) {
 
 window.addEventListener('popstate', () => loadProjects())
 
+// Project tabs, with a yellow dot on any project whose loop is running right now.
+async function renderNav() {
+  const list = await fetch('/api/projects').then((r) => r.json())
+  const nav = $('projects')
+  nav.innerHTML = list
+    .map((p) => `<a href="/p/${encodeURIComponent(p.slug)}" data-slug="${esc(p.slug)}" aria-current="${p.slug === state.slug ? 'page' : 'false'}">${p.running ? '<i class="running" title="loop running"></i>' : ''}${esc(p.slug)} <small>${p.counts.done ?? 0}/${p.total}</small></a>`)
+    .join('')
+  nav.querySelectorAll('a').forEach((a) =>
+    a.addEventListener('click', (e) => {
+      e.preventDefault()
+      history.pushState({}, '', a.getAttribute('href'))
+      open(a.dataset.slug)
+    }),
+  )
+  return list
+}
+
 /* ---------- render ----------------------------------------------------------- */
 
 const statusOf = (t) => (t.status === 'todo' && t.ready ? 'ready' : t.status)
@@ -84,7 +92,7 @@ function render(first = false) {
   renderSummary(d)
   renderPhases(d)
 
-  const key = JSON.stringify([d.tasks.map((t) => [t.id, statusOf(t), t.notes ?? '']), $('hideDone').checked, $('onlyHuman').checked, $('phase').value, state.selected])
+  const key = JSON.stringify([d.tasks.map((t) => [t.id, statusOf(t), t.notes ?? '']), running(d), $('hideDone').checked, $('onlyHuman').checked, $('phase').value, state.selected])
   if (key !== state.graphKey) {
     renderGraph(d, first)
     state.graphKey = key
@@ -92,51 +100,102 @@ function render(first = false) {
   renderFlow(d, first)
   renderCommits(d)
   renderLoop(d)
+  renderStats(d)
+  renderControls(d)
   if (state.selected) renderDetail(d.tasks.find((t) => t.id === state.selected))
   state.prevStatus = new Map(d.tasks.map((t) => [t.id, statusOf(t)]))
 }
 
+const running = (d) => !!d.runner?.running
+const nextAgentTask = (d) => d.tasks.filter((t) => t.ready && t.owner === 'agent').sort((a, b) => a.priority - b.priority || a.id.localeCompare(b.id))[0]
+
 function renderSummary(d) {
   $('pname').textContent = d.name
-  $('pcount').textContent = `${d.counts.done ?? 0}/${d.total} done`
+  $('psub').textContent = `task graph · ${d.tasks.length} tasks${d.counts.dropped ? ` · ${d.counts.dropped} dropped` : ''}`
+  $('pdone').textContent = d.counts.done ?? 0
+  $('ptotal').textContent = `/ ${d.total} done`
+  $('pcount').textContent = `${Math.round((100 * (d.counts.done ?? 0)) / Math.max(1, d.total))}%`
+  // Dropped tasks are outside the bar entirely: they're neither done nor outstanding.
+  const ready = d.tasks.filter((t) => statusOf(t) === 'ready').length
   const seg = [
     ['done', d.counts.done, 'var(--done)'],
-    ['doing', d.counts.doing, 'var(--doing)'],
-    ['ready', d.tasks.filter((t) => statusOf(t) === 'ready').length, 'var(--ready)'],
+    [running(d) ? 'doing' : 'stalled', d.counts.doing, running(d) ? 'var(--doing)' : 'var(--stalled)'],
+    ['ready', ready, 'var(--ready)'],
     ['blocked', d.counts.blocked, 'var(--blocked)'],
   ]
-  $('bar').innerHTML = seg.map(([, n, c]) => `<span style="width:${(100 * (n || 0)) / Math.max(1, d.total)}%;background:${c}"></span>`).join('')
   const waiting = d.total - seg.reduce((a, [, n]) => a + (n || 0), 0)
+  seg.push(['waiting', waiting, 'var(--surface-3)'])
+  $('bar').innerHTML = seg.filter(([, n]) => n).map(([, n, c]) => `<span style="flex:${n} 1 0;background:${c}"></span>`).join('')
   $('legend').innerHTML =
-    seg.map(([name, n, c]) => `<span><b style="background:${c}"></b>${name} ${n || 0}</span>`).join('') +
-    `<span><b style="background:var(--surface-2);border:1px solid var(--line)"></b>waiting ${waiting}</span>`
+    seg.filter(([name, n]) => n || name === 'done' || name === 'ready').map(([name, n, c]) => `<span><b style="background:${c}"></b>${name}<em>${n || 0}</em></span>`).join('') +
+    (d.counts.dropped ? `<span title="Superseded by a change of direction: terminal, not done, not counted"><b style="background:transparent;border:1px dashed var(--ink-3)"></b>dropped<em>${d.counts.dropped}</em></span>` : '')
 
-  const doing = d.tasks.find((t) => t.status === 'doing')
-  const now = $('now')
-  now.classList.toggle('active', !!doing)
-  if (doing) {
-    now.innerHTML = `<div class="label">Building now</div>
-      <div class="task-line">${esc(doing.title)}</div>
-      <div class="meta"><code>${esc(doing.id)}</code> · for ${ago(doing.updated_at)}</div>`
-    now.onclick = () => select(doing.id)
-  } else {
-    const next = d.tasks.filter((t) => t.ready && t.owner === 'agent').sort((a, b) => a.priority - b.priority || a.id.localeCompare(b.id))[0]
-    const last = d.commits[0]
-    now.innerHTML = `<div class="label">${loopActive(d) ? 'Between tasks' : 'Idle'}</div>
-      ${next ? `<div class="task-line">Next: ${esc(next.title)}</div>` : '<div class="task-line">No agent work ready</div>'}
-      ${last ? `<div class="meta">last commit ${ago(last.date)} ago · ${esc(last.subject.slice(0, 60))}</div>` : ''}`
-    now.onclick = next ? () => select(next.id) : null
-  }
+  renderRun(d)
 
-  const humans = d.tasks.filter((t) => t.owner === 'human' && t.status !== 'done')
+  const humans = d.tasks.filter((t) => t.owner === 'human' && t.status !== 'done' && t.status !== 'dropped')
   const readyHumans = humans.filter((t) => t.ready)
   const blocked = d.tasks.filter((t) => t.status === 'blocked')
-  $('gates').innerHTML = `<div class="label">Waiting on you</div>
+  $('gates').innerHTML = `<div class="card-head"><span class="eyebrow">Waiting on you</span><span class="count">${readyHumans.length + blocked.length || ''}</span></div>
     ${readyHumans.length || blocked.length
-      ? `<ul>${[...blocked, ...readyHumans].map((t) => `<li data-id="${esc(t.id)}">${esc(t.title)}${t.status === 'blocked' ? ' <span class="pill blocked">blocked</span>' : ''}</li>`).join('')}</ul>`
-      : `<div class="muted">Nothing right now. ${humans.length} of your tasks come later.</div>`}`
+      ? `<ul>${[...blocked, ...readyHumans].map((t) => `<li data-id="${esc(t.id)}" class="${t.status === 'blocked' ? 'blocked' : ''}">
+          <span class="t">${esc(t.title)}</span>
+          ${t.status === 'blocked' ? `<span class="n">${esc(t.notes ?? 'blocked — no note says why')}</span>` : ''}</li>`).join('')}</ul>`
+      : `<div class="muted small">Nothing right now. ${humans.length} of your tasks come later.</div>`}`
   $('gates').querySelectorAll('li').forEach((li) => (li.onclick = () => select(li.dataset.id)))
 }
+
+// The loop card. `doing` in a task file only means an iteration took the lock; whether anything
+// is actually building comes from the server's process check (d.runner), and when nothing is,
+// the card says why the loop stopped instead of pretending.
+function renderRun(d) {
+  const r = d.runner ?? {}
+  const doing = d.tasks.find((t) => t.status === 'doing')
+  const next = nextAgentTask(d)
+  const now = $('now')
+  const iter = r.run?.iteration ? `iteration ${r.run.iteration}${r.run.max ? ` of ${r.run.max}` : ''}` : ''
+  const stopBox = r.stop
+    ? `<div class="why"><b>${esc(r.stop.title)}</b>${esc(r.stop.why)}<time>stopped ${ago(r.stop.at)} ago · ${clock(r.stop.at)}</time></div>`
+    : ''
+  const note = (t) => (t?.notes ? `<div class="note"><span class="eyebrow">Notes on the task</span>${esc(t.notes)}</div>` : '')
+  let kind, html, target
+  if (r.running && doing) {
+    kind = 'building'
+    target = doing.id
+    html = `<span class="state"><i></i>Building</span>
+      <div class="task-line">${esc(doing.title)}</div>
+      <div class="meta"><code>${esc(doing.id)}</code> · ${[iter, `loop up ${ago(r.since)}`].filter(Boolean).join(' · ')}</div>`
+  } else if (r.running) {
+    kind = 'between'
+    target = next?.id
+    html = `<span class="state"><i></i>Running · between tasks</span>
+      <div class="task-line">${next ? `Next: ${esc(next.title)}` : 'Choosing the next task'}</div>
+      <div class="meta">${[iter, `loop up ${ago(r.since)}`].filter(Boolean).join(' · ')}</div>`
+  } else if (doing) {
+    kind = 'stalled'
+    target = doing.id
+    html = `<span class="state"><i></i>Stalled · nothing is running</span>
+      <div class="task-line">${esc(doing.title)}</div>
+      <div class="meta"><code>${esc(doing.id)}</code> is still marked <b>doing</b>, but no loop is working on it.</div>
+      ${stopBox || '<div class="why"><b>No loop log</b>Nothing records how the last run ended.</div>'}
+      ${note(doing)}
+      <div class="hint">Starting the loop again resumes it: <code>graph.mjs next</code> hands back the task in <code>doing</code> first.</div>`
+  } else {
+    kind = 'idle'
+    target = next?.id
+    html = `<span class="state"><i></i>Idle</span>
+      <div class="task-line">${next ? `Next up: ${esc(next.title)}` : 'No agent work ready'}</div>
+      <div class="meta">${d.loop ? '' : 'No loop has run here yet.'}</div>
+      ${stopBox}`
+  }
+  now.className = `card run ${kind}`
+  now.innerHTML = html
+  now.toggleAttribute('data-click', !!target)
+  now.onclick = target ? () => select(target) : null
+}
+
+// "Stopped: no progress" → "no progress", for places that already say it stopped.
+const stopShort = (stop) => stop.title.replace(/^Stopped: /, '').replace(/^\w/, (c) => c.toLowerCase())
+const clock = (iso) => new Date(iso).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })
 
 function renderPhases(d) {
   const sel = $('phase')
@@ -203,7 +262,7 @@ function visibleTasks(d) {
   const hideDone = $('hideDone').checked
   const onlyHuman = $('onlyHuman').checked
   const phase = $('phase').value
-  return d.tasks.filter((t) => (!hideDone || t.status !== 'done') && (!onlyHuman || t.owner === 'human') && (!phase || t.phase === phase))
+  return d.tasks.filter((t) => (!hideDone || (t.status !== 'done' && t.status !== 'dropped')) && (!onlyHuman || t.owner === 'human') && (!phase || t.phase === phase))
 }
 
 function related(id, tasks, children) {
@@ -237,6 +296,7 @@ function renderGraph(d, first) {
     }
   }
   const doing = d.tasks.find((t) => t.status === 'doing')
+  const live = !!doing && running(d) // a `doing` task with no loop behind it is stalled, not building
 
   const edges = document.createElementNS(svgNS, 'g')
   const nodes = document.createElementNS(svgNS, 'g')
@@ -249,14 +309,14 @@ function renderGraph(d, first) {
       const x1 = from.x + NODE_W, y1 = from.y + NODE_H / 2, x2 = to.x, y2 = to.y + NODE_H / 2
       const mx = (x1 + x2) / 2
       const p = document.createElementNS(svgNS, 'path')
-      p.setAttribute('d', `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`)
+      p.setAttribute('d', `M${x1 + 4},${y1} C${mx},${y1} ${mx},${y2} ${x2 - 4},${y2}`)
       const cls = ['edge']
       if (byId.get(dep)?.status === 'done') cls.push('done')
-      if (doing && t.id === doing.id) cls.push('flow') // current flowing into the task being built
+      if (byId.get(dep)?.status === 'dropped' || t.status === 'dropped') cls.push('dropped')
+      if (live && t.id === doing.id) cls.push('flow') // current flowing into the task being built
       if (justDone.has(dep) && (justReady.has(t.id) || t.status === 'doing')) cls.push('unlock')
       if (focus) cls.push(focus.has(dep) && focus.has(t.id) ? 'hot' : 'dim')
       p.setAttribute('class', cls.join(' '))
-      p.setAttribute('marker-end', 'url(#arrow)')
       edges.append(p)
     }
   }
@@ -264,7 +324,10 @@ function renderGraph(d, first) {
   for (const t of tasks) {
     const { x, y } = pos.get(t.id)
     const g = document.createElementNS(svgNS, 'g')
-    const cls = ['node', statusOf(t)]
+    const s = statusOf(t)
+    const stalled = t.status === 'doing' && !live
+    const cls = ['node', s]
+    if (stalled) cls.push('stalled')
     if (t.owner === 'human') cls.push('human')
     if (t.id === state.selected) cls.push('selected')
     if (focus && !focus.has(t.id)) cls.push('dim')
@@ -274,23 +337,48 @@ function renderGraph(d, first) {
     g.setAttribute('transform', `translate(${x},${y})`)
     g.setAttribute('tabindex', '0')
     g.setAttribute('role', 'button')
-    g.setAttribute('aria-label', `${t.title} — ${statusOf(t)}`)
-    g.innerHTML = `<title>${esc(t.title)}\n${esc(t.id)} · ${esc(statusOf(t))}${t.owner === 'human' ? ' · needs you' : ''}</title>
-      <rect width="${NODE_W}" height="${NODE_H}" rx="8"></rect>
-      <text class="id" x="10" y="17">${esc(clip(t.id, 30))}</text>
-      ${t.owner === 'human' && t.status !== 'done' ? `<text class="badge" x="${NODE_W - 10}" y="17" text-anchor="end">YOU</text>` : ''}
-      ${t.status === 'done' ? `<text class="badge" x="${NODE_W - 10}" y="17" text-anchor="end" style="fill:var(--done)">✓</text>` : ''}
-      <text class="title" x="10" y="36">${esc(clip(t.title, 36))}</text>`
+    const label = stalled ? 'doing, stalled' : s
+    const needsYou = t.owner === 'human' && t.status !== 'done' && t.status !== 'dropped'
+    g.setAttribute('aria-label', `${t.title} — ${label}${needsYou ? ', needs you' : ''}`)
+    const hasIn = t.depends_on.some((dep) => pos.has(dep))
+    const hasOut = children.get(t.id)?.length
+    // A frame with a header row (status dot + id) around an inset card holding the title, and
+    // port dots where edges attach — the node anatomy of the reference.
+    g.innerHTML = `<title>${esc(t.title)}\n${esc(t.id)} · ${esc(label)}${needsYou ? ' · needs you' : ''}</title>
+      <rect class="frame" width="${NODE_W}" height="${NODE_H}" rx="14"></rect>
+      <rect class="underline" x="18" y="${NODE_H - 1.5}" width="${NODE_W - 36}" height="3" rx="1.5" fill="none"></rect>
+      <circle class="dot" cx="14" cy="13" r="3"></circle>
+      <text class="id" x="23" y="16.5">${esc(clip(t.id, 30))}</text>
+      ${t.status === 'done' ? `<text class="mark-done" x="${NODE_W - 12}" y="17" text-anchor="end">✓</text>` : ''}
+      ${stalled ? `<text class="id" x="${NODE_W - 12}" y="16.5" text-anchor="end" style="fill:var(--stalled)">stalled</text>` : ''}
+      ${t.status === 'dropped' ? `<text class="id" x="${NODE_W - 12}" y="16.5" text-anchor="end">dropped</text>` : ''}
+      <rect class="inner" x="6" y="24" width="${NODE_W - 12}" height="${NODE_H - 30}" rx="9"></rect>
+      <text class="title" x="16" y="${24 + (NODE_H - 30) / 2 + 4.5}">${esc(clip(t.title, 34))}</text>
+      ${hasIn ? `<circle class="port" cx="0" cy="${NODE_H / 2}" r="4"></circle>` : ''}
+      ${hasOut ? `<circle class="port" cx="${NODE_W}" cy="${NODE_H / 2}" r="4"></circle>` : ''}
+      ${t.owner === 'human' && t.status !== 'done' && t.status !== 'dropped' ? `<g class="tag" transform="translate(${NODE_W - 44},${NODE_H - 8})"><rect width="38" height="17" rx="6"></rect><text x="19" y="12" text-anchor="middle">you</text></g>` : ''}`
     g.addEventListener('click', (e) => { e.stopPropagation(); select(t.id) })
     g.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select(t.id) } })
     nodes.append(g)
   }
 
-  svg.innerHTML = `<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--edge)"></path></marker></defs>`
+  svg.innerHTML = `<defs>
+      <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="var(--dot)"></circle></pattern>
+      <filter id="glow" x="-30%" y="-60%" width="160%" height="220%"><feDropShadow dx="0" dy="6" stdDeviation="9" flood-color="var(--doing)" flood-opacity=".35"></feDropShadow></filter>
+    </defs><rect x="-20000" y="-20000" width="40000" height="40000" fill="url(#dots)"></rect>`
   svg.append(edges, nodes)
-  state.bounds = { x: -40, y: -70, w: Math.max(width, 400) + 80, h: Math.max(height, 200) + 120 }
-  if (!state.fitted || !state.view) fit()
-  else applyView()
+  // Extra room below for the dock that floats over the bottom of the canvas.
+  state.bounds = { x: -60, y: -80, w: Math.max(width, 400) + 150, h: Math.max(height, 200) + 280 }
+  if (!state.fitted || !state.view) {
+    fit()
+    // Open zoomed in on the work, not on a map too small to read: the task in doing, else the
+    // next task the agent would pick. Fit (⤢) still shows the whole graph.
+    const target = first && (doing ?? nextAgentTask(d) ?? tasks.find((t) => statusOf(t) === 'ready'))
+    if (target && pos.has(target.id)) {
+      if (live) state.followed = target.id
+      centerOn(pos.get(target.id), true)
+    }
+  } else applyView()
 
   // One-shot effects on the overlay layer, which survives graph re-renders.
   for (const id of justDone) {
@@ -301,7 +389,7 @@ function renderGraph(d, first) {
   }
 
   // Follow the build: glide to a newly started task.
-  if (doing && $('follow').checked && state.followed !== doing.id && pos.has(doing.id)) {
+  if (live && $('follow').checked && state.followed !== doing.id && pos.has(doing.id)) {
     state.followed = doing.id
     centerOn(pos.get(doing.id))
   }
@@ -313,11 +401,18 @@ const clip = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s)
 
 const LINE = /^(\d\d:\d\d:\d\d)\s{2}(.*)$/
 
+// Commands that count as the Verify stage: test runners, type checks, linters, builds, gates.
+const VERIFY = /(^|[\s/])(\.\/\S+ (test|check)|(py|vi|je)test|cargo (test|check|clippy)|go (test|vet)|(npm|pnpm|yarn|bun)( --prefix \S+)?( run)? (build|typecheck|test|lint|check)|make (test|check)|ruff|eslint|tsc|mypy|verify\.\w+)\b/
+
 function classify(text) {
   if (text.startsWith('✗')) return { stage: null, kind: 'error', icon: '✗', label: text.slice(1).trim() }
   if (text.startsWith('»')) return { stage: null, kind: 'say', icon: '»', label: text.slice(1).trim() }
   if (text.startsWith('agent started')) return { stage: 'start', kind: 'orient', icon: '◆', label: 'agent started' }
-  if (text.startsWith('agent finished')) return { stage: 'end', kind: 'commit', icon: '◆', label: text }
+  if (text.startsWith('agent finished')) {
+    // stream.mjs prints the result subtype: success, or error_max_turns / error_during_execution.
+    const ok = /^agent finished: success/.test(text)
+    return { stage: 'end', kind: ok ? 'commit' : 'error', icon: ok ? '◆' : '✗', label: text.replace(/^agent finished: /, ok ? 'finished: ' : 'agent: ') }
+  }
   if (!text.startsWith('▸')) return null
   const body = text.slice(1).trim()
   const base = (p) => p.split('/').filter(Boolean).pop() ?? p
@@ -330,16 +425,12 @@ function classify(text) {
       const done = cmd.match(/set (\S+) done/)?.[1]
       return { stage: 'commit', kind: 'commit', icon: '●', label: done ? `${done} → done` : clip(cmd, 48) }
     }
-    if (/\.\/y test|pytest|verify\.mjs|npm (--prefix \S+ )?run (build|typecheck|test)|ruff|tsc|plutil/.test(cmd)) return { stage: 'verify', kind: 'verify', icon: '✓', label: clip(cmd, 48) }
+    if (VERIFY.test(cmd)) return { stage: 'verify', kind: 'verify', icon: '✓', label: clip(cmd, 48) }
     if (/graph\.mjs set \S+ doing/.test(cmd)) return { stage: 'orient', kind: 'implement', icon: '▶', label: `start ${cmd.match(/set (\S+) doing/)?.[1] ?? ''}` }
     if (/(pip|npm|npx) (install|ci)|\.\/y bootstrap/.test(cmd)) return { stage: 'implement', kind: 'implement', icon: '⬇', label: clip(cmd, 48) }
     return { stage: 'orient', kind: 'orient', icon: '$', label: clip(cmd, 48) }
   }
   return { stage: 'orient', kind: 'orient', icon: '·', label: clip(body, 48) }
-}
-
-function loopActive(d) {
-  return !!d.loop && Date.now() - new Date(d.loop.updated_at).getTime() < 3 * 60 * 1000
 }
 
 function renderFlow(d, first) {
@@ -362,9 +453,15 @@ function renderFlow(d, first) {
       if (STAGES.indexOf(ev.stage) >= STAGES.indexOf(stage ?? 'orient')) stage = ev.stage
     }
   }
-  const active = loopActive(d) && !finished
+  const active = running(d) && !finished
   const steps = $('steps')
   steps.classList.toggle('idle', !active)
+  const r = d.runner ?? {}
+  $('flow').classList.toggle('stopped', !r.running && !!r.stop)
+  $('flowLabel').textContent = r.running ? (finished ? 'Iteration finished' : 'Iteration in progress') : d.loop ? 'Last iteration' : 'Iteration'
+  $('flowMeta').textContent = r.run?.iteration
+    ? `${r.run.iteration}${r.run.max ? `/${r.run.max}` : ''}${r.running ? '' : r.stop ? ` · ${stopShort(r.stop)}` : ''}`
+    : d.loop ? '' : 'no loop log yet'
   steps.querySelectorAll('li').forEach((li) => {
     const i = STAGES.indexOf(li.dataset.stage)
     const cur = STAGES.indexOf(stage ?? '')
@@ -393,7 +490,7 @@ function renderFlow(d, first) {
   }
   while (lane.children.length > 16) lane.firstChild.remove()
 
-  if (!first) {
+  if (!first && running(d)) {
     const doing = d.tasks.find((t) => t.status === 'doing')
     const p = doing && state.pos.get(doing.id)
     fresh.filter((ev) => ev.kind !== 'say').slice(-6).forEach((ev, i) => {
@@ -423,7 +520,7 @@ function burst(cx, cy) {
     c.setAttribute('y', cy - NODE_H / 2)
     c.setAttribute('width', NODE_W)
     c.setAttribute('height', NODE_H)
-    c.setAttribute('rx', 10)
+    c.setAttribute('rx', 14)
     c.style.animationDelay = `${delay}ms`
     $('fx').append(c)
     setTimeout(() => c.remove(), 1400 + delay)
@@ -431,12 +528,13 @@ function burst(cx, cy) {
 }
 
 let toastTimer
-function toast(text) {
+function toast(text, kind = '') {
   const el = $('toast')
   el.textContent = text
+  el.classList.toggle('error', kind === 'error')
   el.classList.add('show')
   clearTimeout(toastTimer)
-  toastTimer = setTimeout(() => el.classList.remove('show'), 3200)
+  toastTimer = setTimeout(() => el.classList.remove('show'), kind === 'error' ? 6000 : 3200)
 }
 
 /* ---------- pan / zoom / camera --------------------------------------------- */
@@ -459,12 +557,16 @@ const applyView = () => {
   $('fx').setAttribute('viewBox', vb)
 }
 
-function centerOn(p) {
+function centerOn(p, instant = false) {
   const v = state.view
-  // Zoom in enough to read the task, but never zoom out from where the user is.
-  const w = Math.min(v.w, (NODE_W + COL_GAP) * 4.2)
+  const r = $('graph').getBoundingClientRect()
+  // Zoom in until a node is about 210px wide — readable — but never zoom out from where the
+  // user is. The task sits a little above centre, clear of the dock.
+  const w = Math.min(v.w, (r.width / 210) * NODE_W)
   const h = v.h * (w / v.w)
-  tweenView({ x: p.x + NODE_W / 2 - w / 2, y: p.y + NODE_H / 2 - h / 2, w, h })
+  const to = { x: p.x + NODE_W / 2 - w / 2, y: p.y + NODE_H / 2 - h * 0.38, w, h }
+  if (instant) { state.view = to; return applyView() }
+  tweenView(to)
 }
 
 function tweenView(to, ms = 900) {
@@ -515,8 +617,8 @@ function tweenView(to, ms = 900) {
   svg.addEventListener('pointerup', () => {
     if (drag && !drag.moved && state.selected) {
       state.selected = null
-      $('detail').className = 'panel detail empty'
-      $('detail').textContent = 'Select a task to see its brief, acceptance and history.'
+      $('detail').className = 'detail empty'
+      $('detail').textContent = 'Click a task in the graph to see its brief, acceptance and history.'
       render()
     }
     drag = null
@@ -528,6 +630,7 @@ function tweenView(to, ms = 900) {
 
 function select(id) {
   state.selected = id
+  showTab('task')
   render()
   const p = state.pos.get(id)
   if (p && state.view) {
@@ -537,24 +640,45 @@ function select(id) {
   }
 }
 
+const NOTES_HEADING = { blocked: 'Why it is blocked', dropped: 'What replaced it', doing: 'Notes from the last attempt' }
+
 function renderDetail(t) {
   const el = $('detail')
-  if (!t) { el.className = 'panel detail empty'; return }
-  el.className = 'panel detail'
+  if (!t) { el.className = 'detail empty'; return }
   const s = statusOf(t)
+  const stalled = t.status === 'doing' && !running(state.data)
+  el.className = `detail ${s}`
   el.innerHTML = `
     <div class="idline">${esc(t.id)} · ${esc(t.phase)} · p${t.priority}</div>
     <h2>${esc(t.title)}</h2>
-    <span class="pill ${s}">${esc(s)}</span>${t.owner === 'human' ? '<span class="pill human">needs you</span>' : ''}
-    ${t.commit ? `<div class="muted" style="margin-top:6px"><code>${esc(t.commit.hash)}</code> ${ago(t.commit.date)} ago</div>` : ''}
-    ${t.notes ? `<h4>Notes from the last attempt</h4><div class="notes">${esc(t.notes)}</div>` : ''}
+    <span class="pill ${stalled ? 'stalled' : s}">${stalled ? 'doing · stalled' : esc(s)}</span>${t.owner === 'human' && t.status !== 'dropped' ? '<span class="pill human">needs you</span>' : ''}
+    ${t.commit ? `<div class="muted small" style="margin-top:8px"><code>${esc(t.commit.hash)}</code> ${ago(t.commit.date)} ago</div>` : ''}
+    ${t.notes ? `<h4>${NOTES_HEADING[t.status] ?? 'Notes'}</h4><div class="notes ${esc(t.status)}">${esc(t.notes)}</div>` : ''}
     ${t.depends_on.length ? `<h4>Depends on</h4><div class="deps">${t.depends_on.map((x) => `<a data-id="${esc(x)}">${esc(x)}</a>`).join('')}</div>` : ''}
-    ${t.waits_on?.length && t.status === 'todo' ? `<div class="muted" style="margin-top:4px">waiting on ${t.waits_on.map(esc).join(', ')}</div>` : ''}
+    ${t.waits_on?.length && t.status === 'todo' ? `<div class="muted small" style="margin-top:6px">waiting on ${t.waits_on.map(esc).join(', ')}</div>` : ''}
     <h4>Acceptance</h4><ul>${(t.acceptance ?? []).map((a) => `<li>${esc(a)}</li>`).join('')}</ul>
     ${t.verify ? `<h4>Verify</h4><div class="verify">${esc(t.verify)}</div>` : ''}
     ${t.spec ? `<h4>Spec</h4><code>${esc(t.spec)}</code>` : ''}
     ${t.body ? `<h4>Brief</h4><div class="brief">${esc(t.body)}</div>` : ''}`
   el.querySelectorAll('.deps a').forEach((a) => (a.onclick = () => select(a.dataset.id)))
+}
+
+function showTab(name) {
+  document.querySelectorAll('.tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === name)))
+  document.querySelectorAll('.pane').forEach((p) => (p.hidden = p.dataset.pane !== name))
+}
+document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab)))
+
+// Faint corner readout, like the reference's T/I/N/S stats.
+function renderStats(d) {
+  const r = d.runner ?? {}
+  const rows = [
+    ['loop', r.running ? `running · pid ${r.pid}` : r.stop ? stopShort(r.stop) : d.loop ? 'stopped' : 'never run'],
+    ['iter', r.run?.iteration ? `${r.run.iteration}${r.run.max ? `/${r.run.max}` : ''} · ${r.run.mode ?? ''}` : '—'],
+    ['head', d.commits[0]?.hash ?? '—'],
+  ]
+  if (d.problems.length) rows.push(['graph', `${d.problems.length} problem(s)`])
+  $('stats').innerHTML = rows.map(([k, v]) => `<div>${k}: <b>${esc(v)}</b></div>`).join('')
 }
 
 function renderCommits(d) {
@@ -565,14 +689,13 @@ function renderCommits(d) {
 }
 
 function renderLoop(d) {
-  const panel = $('loopPanel')
-  panel.hidden = !d.loop
-  if (!d.loop) return
+  if (!d.loop) { $('loop').textContent = ''; $('loopAge').textContent = 'No harness/.loop.log in this project yet.'; return }
   const pre = $('loop')
-  const atBottom = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 8
+  const box = pre.parentElement // the pane scrolls, not the <pre>
+  const atBottom = box.hidden || box.scrollTop + box.clientHeight >= box.scrollHeight - 8
   pre.textContent = d.loop.tail.split('\n').slice(-80).join('\n')
-  $('loopAge').textContent = `· updated ${ago(d.loop.updated_at)} ago`
-  if (atBottom) pre.scrollTop = pre.scrollHeight
+  $('loopAge').textContent = `updated ${ago(d.loop.updated_at)} ago`
+  if (atBottom) box.scrollTop = box.scrollHeight
 }
 
 function ago(iso) {
@@ -596,9 +719,161 @@ $('zoomIn').addEventListener('click', () => zoomBy(0.75))
 $('zoomOut').addEventListener('click', () => zoomBy(1.33))
 $('follow').addEventListener('change', () => {
   const doing = state.data?.tasks.find((t) => t.status === 'doing')
-  if ($('follow').checked && doing && state.pos.has(doing.id)) { state.followed = doing.id; centerOn(state.pos.get(doing.id)) }
+  if ($('follow').checked && doing && running(state.data) && state.pos.has(doing.id)) { state.followed = doing.id; centerOn(state.pos.get(doing.id)) }
 })
 window.addEventListener('resize', () => state.data && fit())
 setInterval(() => state.data && (renderSummary(state.data), renderFlow(state.data, false)), 15000)
+setInterval(() => renderNav().catch(() => {}), 15000)
+
+/* ---------- loop controls: ▶ start (with a popover), ■ stop (with a confirm) -------- */
+
+const ICON = {
+  play: '<svg viewBox="0 0 14 14" aria-hidden="true"><path d="M3 1.6v10.8a.6.6 0 0 0 .9.5l8.6-5.4a.6.6 0 0 0 0-1L3.9 1.1a.6.6 0 0 0-.9.5z"/></svg>',
+  stop: '<svg viewBox="0 0 14 14" aria-hidden="true"><rect x="2" y="2" width="10" height="10" rx="2"/></svg>',
+}
+let pending = null // 'start' | 'stop' while a request is in flight or the loop hasn't caught up yet
+let pendingTimer
+const store = { get: (k) => { try { return localStorage.getItem(k) } catch { return null } }, set: (k, v) => { try { localStorage.setItem(k, v) } catch {} } }
+let mode = store.get('loop.mode') ?? 'build'
+
+function renderControls(d) {
+  const r = d.runner ?? {}
+  const c = d.controls ?? {}
+  const btn = $('runBtn')
+  // Once the server sees the change we asked for, stop showing "starting…/stopping…".
+  if ((pending === 'start' && r.running) || (pending === 'stop' && !r.running)) { pending = null; clearTimeout(pendingTimer) }
+  const on = r.running
+  btn.innerHTML = on ? ICON.stop : ICON.play
+  btn.classList.toggle('running', on)
+  btn.classList.toggle('busy', !!pending)
+  btn.disabled = !!pending || (!on && (!c.script || !c.modes?.length))
+  btn.setAttribute('aria-label', on ? 'Stop the loop' : 'Start the loop')
+  btn.title = on ? 'Stop the loop'
+    : c.read_only ? 'This server was started with --read-only'
+    : !c.script ? 'This project has no harness/bin/loop.sh'
+    : !c.modes?.length ? 'No harness/prompts/*.md to run' : 'Start the loop'
+
+  const iter = r.run?.iteration ?? 0
+  const max = r.run?.max ?? 0
+  const label = $('runState').querySelector('.l')
+  const bar = $('runState').querySelector('.track span')
+  if (pending === 'start') label.innerHTML = '<b>Starting…</b>'
+  else if (pending === 'stop') label.innerHTML = '<b>Stopping…</b> signalling the loop and its agent'
+  else if (on) label.innerHTML = `<i></i><b>In progress</b> · ${r.run?.mode ?? 'loop'} · iteration ${iter}${max ? ` of ${max}` : ''} · ${ago(r.since)}`
+  else if (r.stop) label.innerHTML = `<b>Stopped</b> · ${esc(stopShort(r.stop))} · ${ago(r.stop.at)} ago`
+  else label.innerHTML = c.script ? '<b>Not running</b> · press play to start the loop' : '<b>Not running</b>'
+  // The track fills with iterations used; while one is in flight it counts as half done.
+  bar.style.width = on && max ? `${Math.min(100, (100 * Math.max(0, iter - 0.5)) / max)}%` : '0%'
+
+  if (!$('stopPop').hidden && !on) closePops()
+  if (!$('startPop').hidden && on) closePops()
+}
+
+function closePops() {
+  for (const id of ['startPop', 'stopPop']) $(id).hidden = true
+  $('runBtn').setAttribute('aria-expanded', 'false')
+}
+function openPop(id, focus) {
+  closePops()
+  $(id).hidden = false
+  $('runBtn').setAttribute('aria-expanded', 'true')
+  focus?.focus()
+}
+
+$('runBtn').addEventListener('click', () => {
+  const d = state.data
+  if (!d) return
+  if (!$('startPop').hidden || !$('stopPop').hidden) return closePops()
+  if (d.runner?.running) {
+    const doing = d.tasks.find((t) => t.status === 'doing')
+    $('stopWhat').innerHTML = doing
+      ? `The agent is cut off mid-iteration. <code>${esc(doing.id)}</code> stays in <b>doing</b>, and the next run picks it back up.`
+      : 'The agent is cut off mid-iteration; anything it hasn\'t committed stays in the working tree.'
+    openPop('stopPop', $('stopGo'))
+  } else {
+    const modes = d.controls?.modes ?? []
+    if (!modes.includes(mode)) mode = modes[0]
+    $('modes').innerHTML = modes.map((m) => `<button type="button" data-mode="${esc(m)}" aria-pressed="${m === mode}">${esc(m)}</button>`).join('')
+    $('iters').value = store.get('loop.iterations') ?? 10
+    updateCmd()
+    openPop('startPop', $('startGo'))
+  }
+})
+
+function iterations() {
+  const n = Math.round(Number($('iters').value))
+  return Math.min(200, Math.max(1, Number.isFinite(n) ? n : 10))
+}
+const updateCmd = () => { $('cmd').textContent = `./harness/bin/loop.sh ${mode} ${iterations()}` }
+$('modes').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-mode]')
+  if (!b) return
+  mode = b.dataset.mode
+  $('modes').querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)))
+  updateCmd()
+})
+$('iters').addEventListener('input', updateCmd)
+$('itersDown').addEventListener('click', () => { $('iters').value = Math.max(1, iterations() - 1); updateCmd() })
+$('itersUp').addEventListener('click', () => { $('iters').value = Math.min(200, iterations() + 1); updateCmd() })
+document.querySelectorAll('.stepper .quick button').forEach((b) => b.addEventListener('click', () => { $('iters').value = b.dataset.n; updateCmd() }))
+document.querySelectorAll('.pop [data-close]').forEach((b) => b.addEventListener('click', closePops))
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePops() })
+document.addEventListener('pointerdown', (e) => { if (!e.target.closest('.pop, #runBtn')) closePops() })
+$('iters').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('startGo').click() })
+
+async function loopAction(action, payload) {
+  const slug = state.slug
+  pending = action
+  closePops()
+  renderControls(state.data)
+  clearTimeout(pendingTimer)
+  // If the snapshot never reflects the change, give the button back rather than hang.
+  pendingTimer = setTimeout(() => { pending = null; state.data && renderControls(state.data) }, 12000)
+  try {
+    const res = await fetch(`/api/projects/${encodeURIComponent(slug)}/loop/${action}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-harness-viz': '1' },
+      body: JSON.stringify(payload ?? {}),
+    })
+    const out = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(out.error ?? `HTTP ${res.status}`)
+    toast(action === 'start' ? `▶ Loop started · ${payload.mode} × ${payload.iterations}` : '■ Loop stopped')
+  } catch (err) {
+    pending = null
+    clearTimeout(pendingTimer)
+    toast(`Couldn't ${action} the loop: ${err.message}`, 'error')
+  }
+  if (state.data && state.slug === slug) renderControls(state.data)
+}
+
+$('startGo').addEventListener('click', () => {
+  const n = iterations()
+  store.set('loop.mode', mode)
+  store.set('loop.iterations', String(n))
+  loopAction('start', { mode, iterations: n })
+})
+$('stopGo').addEventListener('click', () => loopAction('stop'))
+
+/* ---------- theme ------------------------------------------------------------- */
+// Follows the system until you press the toggle; then your choice sticks (per browser).
+
+function theme() {
+  const set = document.documentElement.dataset.theme
+  return set ?? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+}
+function paintThemeButton() {
+  const next = theme() === 'dark' ? 'light' : 'dark'
+  $('theme').textContent = next === 'light' ? '☀' : '☾'
+  $('theme').setAttribute('aria-label', `Switch to ${next} theme`)
+  $('theme').title = `Switch to ${next} theme`
+}
+$('theme').addEventListener('click', () => {
+  const next = theme() === 'dark' ? 'light' : 'dark'
+  document.documentElement.dataset.theme = next
+  store.set('theme', next)
+  paintThemeButton()
+})
+matchMedia('(prefers-color-scheme: light)').addEventListener('change', paintThemeButton)
+paintThemeButton()
 
 loadProjects()

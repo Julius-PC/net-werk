@@ -1,2 +1,5 @@
 node_modules/
 .DS_Store
+# local Claude Code state: worktrees and per-machine settings
+.claude/worktrees/
+.claude/settings.local.json
