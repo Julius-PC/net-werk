@@ -1,38 +1,205 @@
 
-════ 2026-09-28 09:14:02 ════
-── loop: mode=build max=10 ──
+════ 2026-09-27 22:00:00 ════
+── loop: mode=build max=20 ──
 
-── iteration 1/10 ──────────────────────────────────
-09:14:05  agent started (claude)
-09:14:08  » Orienting: reading the rules and the next task.
-09:14:08  ▸ $ node harness/bin/graph.mjs next
-09:14:11  ▸ read specs/site.md
-09:14:40  ▸ $ node harness/bin/graph.mjs set contact-link doing
-09:16:02  ▸ edit src/layouts/Base.astro
-09:17:30  ▸ $ npm run build
-09:17:52  ▸ $ node harness/bin/graph.mjs set contact-link done
-09:17:58  ▸ $ git commit -m "task(contact-link): Add a contact link to the footer"
-09:18:03  agent finished: success in 238s, 31 turns
+── iteration 1/20 ──────────────────────────────────
+### NEXT TASK — ui-recipe-page
+22:00:07  agent started (claude)
+22:00:47  ▸ read specs/ui.md
+22:01:27  ▸ $ node harness/bin/graph.mjs set ui-recipe-page doing
+22:06:27  ▸ edit src/ui-recipe-page/index.ts
+22:10:27  ▸ $ npm test
+22:13:47  ▸ $ node harness/bin/graph.mjs set ui-recipe-page done && git commit
+22:13:52  agent finished: success in 300s, 30 turns
 
-── iteration 2/10 ──────────────────────────────────
-09:18:06  agent started (claude)
-09:18:09  ▸ $ node harness/bin/graph.mjs next
-09:18:30  ▸ $ node harness/bin/graph.mjs set search-index doing
-09:21:12  ▸ write src/search/index.js
-09:24:40  ▸ $ npm run build
-09:25:02  ✗ search: 0 results for "garlic" — ingredients are not indexed
-09:27:15  ▸ edit harness/graph/search-index.md
-09:27:30  agent finished: error_max_turns in 564s, 120 turns
-no commit this iteration (1x in a row)
+── iteration 2/20 ──────────────────────────────────
+### NEXT TASK — ui-planner
+22:21:07  agent started (claude)
+22:21:47  ▸ read specs/ui.md
+22:22:27  ▸ $ node harness/bin/graph.mjs set ui-planner doing
+22:27:27  ▸ edit src/ui-planner/index.ts
+22:31:27  ▸ $ npm test
+22:34:47  ▸ $ node harness/bin/graph.mjs set ui-planner done && git commit
+22:34:52  agent finished: success in 337s, 43 turns
 
-── iteration 3/10 ──────────────────────────────────
-09:27:33  agent started (claude)
-09:27:36  » Resuming search-index from its notes.
-09:27:37  ▸ read harness/graph/search-index.md
-09:29:50  ▸ edit src/search/index.js
-09:33:10  ▸ $ npm run build
-09:33:31  ✗ search: 0 results for "garlic"
-09:35:02  agent finished: error_max_turns in 449s, 120 turns
-no commit this iteration (2x in a row)
-two iterations without progress — stopping rather than burning tokens.
-look at: node harness/bin/graph.mjs status
+── iteration 3/20 ──────────────────────────────────
+### NEXT TASK — ui-shopping
+22:42:07  agent started (claude)
+22:42:47  ▸ read specs/ui.md
+22:43:27  ▸ $ node harness/bin/graph.mjs set ui-shopping doing
+22:48:27  ▸ edit src/ui-shopping/index.ts
+22:52:27  ▸ $ npm test
+22:55:47  ▸ $ node harness/bin/graph.mjs set ui-shopping done && git commit
+22:55:52  agent finished: success in 374s, 56 turns
+
+── iteration 4/20 ──────────────────────────────────
+### NEXT TASK — ui-expiry
+23:03:07  agent started (claude)
+23:03:47  ▸ read specs/ui.md
+23:04:27  ▸ $ node harness/bin/graph.mjs set ui-expiry doing
+23:09:27  ▸ edit src/ui-expiry/index.ts
+23:13:27  ▸ $ npm test
+23:16:47  ▸ $ node harness/bin/graph.mjs set ui-expiry done && git commit
+23:16:52  agent finished: success in 411s, 69 turns
+
+── iteration 5/20 ──────────────────────────────────
+### NEXT TASK — ui-onboarding
+23:24:07  agent started (claude)
+23:24:47  ▸ read specs/ui.md
+23:25:27  ▸ $ node harness/bin/graph.mjs set ui-onboarding doing
+23:30:27  ▸ edit src/ui-onboarding/index.ts
+23:34:27  ▸ $ npm test
+23:37:47  ▸ $ node harness/bin/graph.mjs set ui-onboarding done && git commit
+23:37:52  agent finished: success in 448s, 82 turns
+
+── iteration 6/20 ──────────────────────────────────
+### NEXT TASK — empty-states
+23:45:07  agent started (claude)
+23:45:47  ▸ read specs/ui.md
+23:46:27  ▸ $ node harness/bin/graph.mjs set empty-states doing
+23:51:27  ▸ edit src/empty-states/index.ts
+23:55:27  ▸ $ npm test
+23:58:47  ▸ $ node harness/bin/graph.mjs set empty-states done && git commit
+23:58:52  agent finished: success in 485s, 95 turns
+
+── iteration 7/20 ──────────────────────────────────
+### NEXT TASK — a11y-pass
+00:06:07  agent started (claude)
+00:06:47  ▸ read specs/ui.md
+00:07:27  ▸ $ node harness/bin/graph.mjs set a11y-pass doing
+00:12:27  ▸ edit src/a11y-pass/index.ts
+00:16:27  ▸ $ npm test
+00:19:47  ▸ $ node harness/bin/graph.mjs set a11y-pass done && git commit
+00:19:52  agent finished: success in 522s, 38 turns
+
+── iteration 8/20 ──────────────────────────────────
+### NEXT TASK — sync-engine
+00:27:07  agent started (claude)
+00:27:47  ▸ read specs/sync.md
+00:28:27  ▸ $ node harness/bin/graph.mjs set sync-engine doing
+00:33:27  ▸ edit src/sync-engine/index.ts
+00:37:27  ▸ $ npm test
+00:40:47  ▸ $ node harness/bin/graph.mjs set sync-engine done && git commit
+00:40:52  agent finished: success in 559s, 51 turns
+
+── iteration 9/20 ──────────────────────────────────
+### NEXT TASK — sync-conflicts
+00:48:07  agent started (claude)
+00:48:47  ▸ read specs/sync.md
+00:49:27  ▸ $ node harness/bin/graph.mjs set sync-conflicts doing
+00:54:27  ▸ edit src/sync-conflicts/index.ts
+00:58:27  ▸ $ npm test
+01:01:47  ▸ $ node harness/bin/graph.mjs set sync-conflicts done && git commit
+01:01:52  agent finished: success in 596s, 64 turns
+
+── iteration 10/20 ──────────────────────────────────
+### NEXT TASK — push-notify
+01:09:07  agent started (claude)
+01:09:47  ▸ read specs/sync.md
+01:10:27  ▸ $ node harness/bin/graph.mjs set push-notify doing
+01:15:27  ▸ edit src/push-notify/index.ts
+01:19:27  ▸ $ npm test
+01:22:47  ▸ $ node harness/bin/graph.mjs set push-notify done && git commit
+01:22:52  agent finished: success in 633s, 77 turns
+
+── iteration 11/20 ──────────────────────────────────
+### NEXT TASK — push-ios
+01:30:07  agent started (claude)
+01:30:47  ▸ read specs/sync.md
+01:31:27  ▸ $ node harness/bin/graph.mjs set push-ios doing
+01:36:27  ▸ edit src/push-ios/index.ts
+01:40:27  ▸ $ npm test
+01:43:47  ▸ $ node harness/bin/graph.mjs set push-ios done && git commit
+01:43:52  agent finished: success in 670s, 90 turns
+
+── iteration 12/20 ──────────────────────────────────
+### NEXT TASK — export-backup
+01:51:07  agent started (claude)
+01:51:47  ▸ read specs/sync.md
+01:52:27  ▸ $ node harness/bin/graph.mjs set export-backup doing
+01:57:27  ▸ edit src/export-backup/index.ts
+02:01:27  ▸ $ npm test
+02:04:47  ▸ $ node harness/bin/graph.mjs set export-backup done && git commit
+02:04:52  agent finished: success in 707s, 33 turns
+
+── iteration 13/20 ──────────────────────────────────
+### NEXT TASK — mobile-shell
+02:12:07  agent started (claude)
+02:12:47  ▸ read specs/mobile.md
+02:13:27  ▸ $ node harness/bin/graph.mjs set mobile-shell doing
+02:18:27  ▸ edit src/mobile-shell/index.ts
+02:22:27  ▸ $ npm test
+02:25:47  ▸ $ node harness/bin/graph.mjs set mobile-shell done && git commit
+02:25:52  agent finished: success in 744s, 46 turns
+
+── iteration 14/20 ──────────────────────────────────
+### NEXT TASK — mobile-camera
+02:33:07  agent started (claude)
+02:33:47  ▸ read specs/mobile.md
+02:34:27  ▸ $ node harness/bin/graph.mjs set mobile-camera doing
+02:39:27  ▸ edit src/mobile-camera/index.ts
+02:43:27  ▸ $ npm test
+02:46:47  ▸ $ node harness/bin/graph.mjs set mobile-camera done && git commit
+02:46:52  agent finished: success in 781s, 59 turns
+
+── iteration 15/20 ──────────────────────────────────
+### NEXT TASK — mobile-offline
+02:54:07  agent started (claude)
+02:54:47  ▸ read specs/mobile.md
+02:55:27  ▸ $ node harness/bin/graph.mjs set mobile-offline doing
+03:00:27  ▸ edit src/mobile-offline/index.ts
+03:04:27  ▸ $ npm test
+03:07:47  ▸ $ node harness/bin/graph.mjs set mobile-offline done && git commit
+03:07:52  agent finished: success in 318s, 72 turns
+
+── iteration 16/20 ──────────────────────────────────
+### NEXT TASK — infra-as-code
+03:15:07  agent started (claude)
+03:15:47  ▸ read specs/deploy.md
+03:16:27  ▸ $ node harness/bin/graph.mjs set infra-as-code doing
+03:21:27  ▸ edit src/infra-as-code/index.ts
+03:25:27  ▸ $ npm test
+03:28:47  ▸ $ node harness/bin/graph.mjs set infra-as-code done && git commit
+03:28:52  agent finished: success in 355s, 85 turns
+
+── iteration 17/20 ──────────────────────────────────
+### NEXT TASK — deploy-staging
+03:36:07  agent started (claude)
+03:36:47  ▸ read specs/deploy.md
+03:37:27  ▸ $ node harness/bin/graph.mjs set deploy-staging doing
+03:42:27  ▸ edit src/deploy-staging/index.ts
+03:46:27  ▸ $ npm test
+03:49:47  ▸ $ node harness/bin/graph.mjs set deploy-staging done && git commit
+03:49:52  agent finished: success in 392s, 98 turns
+
+── iteration 18/20 ──────────────────────────────────
+### NEXT TASK — backups-nightly
+03:57:07  agent started (claude)
+03:57:47  ▸ read specs/deploy.md
+03:58:27  ▸ $ node harness/bin/graph.mjs set backups-nightly doing
+04:03:27  ▸ edit src/backups-nightly/index.ts
+04:07:27  ▸ $ npm test
+04:10:47  ▸ $ node harness/bin/graph.mjs set backups-nightly done && git commit
+04:10:52  agent finished: success in 429s, 41 turns
+
+── iteration 19/20 ──────────────────────────────────
+### NEXT TASK — observability
+04:18:07  agent started (claude)
+04:18:47  ▸ read specs/deploy.md
+04:19:27  ▸ $ node harness/bin/graph.mjs set observability doing
+04:24:27  ▸ edit src/observability/index.ts
+04:28:27  ▸ $ npm test
+04:31:47  ▸ $ node harness/bin/graph.mjs set observability done && git commit
+04:31:52  agent finished: success in 466s, 54 turns
+
+── iteration 20/20 ──────────────────────────────────
+### NEXT TASK — landing-page
+04:39:07  agent started (claude)
+04:39:47  ▸ read specs/launch.md
+04:40:27  ▸ $ node harness/bin/graph.mjs set landing-page doing
+04:45:27  ▸ edit src/landing-page/index.ts
+04:49:27  ▸ $ npm test
+04:52:47  ▸ $ node harness/bin/graph.mjs set landing-page done && git commit
+04:52:52  agent finished: success in 503s, 67 turns
+
+── reached iteration cap ──

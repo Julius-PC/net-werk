@@ -28,6 +28,7 @@ const state = {
   prevStatus: null, // Map id -> status from the previous snapshot (null on first load)
   seen: new Set(), // loop-log lines already turned into chips/floaters
   followed: null, // id of the task the Focus camera last moved to
+  taskAct: null, // { id, act: 'done' | 'unblock', note, busy } while a task action is being confirmed
 }
 
 /* ---------- projects & routing ---------------------------------------------- */
@@ -40,7 +41,7 @@ async function loadProjects() {
 }
 
 function open(slug) {
-  Object.assign(state, { slug, selected: null, fitted: false, graphKey: '', prevStatus: null, seen: new Set(), followed: null, data: null })
+  Object.assign(state, { slug, taskAct: null, selected: null, fitted: false, graphKey: '', prevStatus: null, seen: new Set(), followed: null, data: null })
   $('lane').innerHTML = ''
   $('fx').innerHTML = ''
   closePops()
@@ -52,6 +53,14 @@ function open(slug) {
   state.source = src
   src.onopen = () => { live.classList.add('on'); live.querySelector('span').textContent = 'live' }
   src.onerror = () => { live.classList.remove('on'); live.querySelector('span').textContent = 'reconnecting' }
+  // The project's folder went away (deleted, moved, renamed): stop retrying and say so.
+  src.addEventListener('gone', () => {
+    src.close()
+    live.classList.remove('on')
+    live.querySelector('span').textContent = 'project gone'
+    toast(`${slug} isn't there any more — it was moved or deleted`, 'error')
+    renderNav().catch(() => {})
+  })
   src.onmessage = (e) => {
     const next = JSON.parse(e.data)
     const first = !state.data
@@ -139,14 +148,95 @@ function renderSummary(d) {
   const humans = d.tasks.filter((t) => t.owner === 'human' && t.status !== 'done' && t.status !== 'dropped')
   const readyHumans = humans.filter((t) => t.ready)
   const blocked = d.tasks.filter((t) => t.status === 'blocked')
-  $('gates').innerHTML = `<div class="card-head"><span class="eyebrow">Waiting on you</span><span class="count">${readyHumans.length + blocked.length || ''}</span></div>
+  const painted = paint($('gates'), `<div class="card-head"><span class="eyebrow">Waiting on you</span><span class="count">${readyHumans.length + blocked.length || ''}</span></div>
     ${readyHumans.length || blocked.length
       ? `<ul>${[...blocked, ...readyHumans].map((t) => `<li data-id="${esc(t.id)}" class="${t.status === 'blocked' ? 'blocked' : ''}">
           <span class="t">${esc(t.title)}</span>
-          ${t.status === 'blocked' ? `<span class="n">${esc(t.notes ?? 'blocked — no note says why')}</span>` : ''}</li>`).join('')}</ul>`
-      : `<div class="muted small">Nothing right now. ${humans.length} of your tasks come later.</div>`}`
-  $('gates').querySelectorAll('li').forEach((li) => (li.onclick = () => select(li.dataset.id)))
+          ${t.status === 'blocked' ? `<span class="n">${esc(t.notes ?? 'blocked — no note says why')}</span>` : ''}
+          ${taskActions(t)}</li>`).join('')}</ul>`
+      : `<div class="muted small">Nothing right now. ${humans.length} of your tasks come later.</div>`}`)
+  if (painted) $('gates').querySelectorAll('li').forEach((li) => (li.onclick = (e) => { if (!e.target.closest('.acts')) select(li.dataset.id) }))
 }
+
+/* ---------- your tasks: mark done, unblock ---------------------------------- */
+// Human-owned tasks can be marked done from the page, and blocked tasks unblocked (with an
+// optional note saying what you provided). Each asks first, inline. The page redraws on every
+// log line, so which task is mid-confirm — and any note being typed — lives in state.taskAct,
+// and paint() only touches the DOM when the markup actually changed.
+
+const canMark = (t) => t.owner === 'human' && t.status !== 'done' && t.status !== 'dropped'
+const canUnblock = (t) => t.status === 'blocked'
+
+function taskActions(t) {
+  if (state.data?.controls?.read_only || (!canMark(t) && !canUnblock(t))) return ''
+  const a = state.taskAct?.id === t.id ? state.taskAct : null
+  if (a?.act === 'done') {
+    return `<div class="acts confirm"><span>Mark this done? It's committed to the repo as <code>task(${esc(t.id)})</code>.</span>
+      <span class="row"><button class="mini" data-task-act="cancel">Cancel</button><button class="mini go" data-task-act="confirm" data-id="${esc(t.id)}" ${a.busy ? 'disabled' : ''}>${a.busy ? 'Marking…' : 'Mark done'}</button></span></div>`
+  }
+  if (a?.act === 'unblock') {
+    return `<div class="acts confirm"><label>What did you provide? <i>optional — goes into the task's notes for the next agent</i>
+        <textarea data-task-note rows="2" placeholder="e.g. the export is .xlsx — added to specs/accounts.md"></textarea></label>
+      <span class="row"><button class="mini" data-task-act="cancel">Cancel</button><button class="mini go" data-task-act="confirm" data-id="${esc(t.id)}" ${a.busy ? 'disabled' : ''}>${a.busy ? 'Unblocking…' : 'Unblock'}</button></span></div>`
+  }
+  return `<div class="acts">${canUnblock(t)
+    ? `<button class="mini" data-task-act="unblock" data-id="${esc(t.id)}">Unblock</button>`
+    : `<button class="mini" data-task-act="done" data-id="${esc(t.id)}">✓ Mark done</button>`}</div>`
+}
+
+// Write markup only when it changed; keep a note that's being typed, and its focus.
+function paint(el, html) {
+  if (el.dataset.html === html) return false
+  const typing = el.querySelector('textarea[data-task-note]')
+  const hadFocus = typing && document.activeElement === typing
+  el.innerHTML = html
+  el.dataset.html = html
+  const note = el.querySelector('textarea[data-task-note]')
+  if (note) {
+    note.value = state.taskAct?.note ?? ''
+    if (hadFocus) { note.focus(); note.selectionStart = note.selectionEnd = note.value.length }
+  }
+  return true
+}
+
+const repaintTasks = () => { if (state.data) { renderSummary(state.data); if (state.selected) renderDetail(state.data.tasks.find((t) => t.id === state.selected)) } }
+
+document.addEventListener('input', (e) => {
+  if (e.target.matches('textarea[data-task-note]') && state.taskAct) state.taskAct.note = e.target.value
+})
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-task-act]')
+  if (!b) return
+  e.stopPropagation()
+  const act = b.dataset.taskAct
+  if (act === 'cancel') { state.taskAct = null; return repaintTasks() }
+  if (act === 'done' || act === 'unblock') {
+    state.taskAct = { id: b.dataset.id, act, note: '' }
+    repaintTasks()
+    document.querySelector('textarea[data-task-note]')?.focus()
+    return
+  }
+  if (act !== 'confirm' || !state.taskAct || state.taskAct.busy) return
+  const { id, act: what, note } = state.taskAct
+  const task = state.data.tasks.find((t) => t.id === id)
+  state.taskAct.busy = true
+  repaintTasks()
+  try {
+    const res = await fetch(`/api/projects/${encodeURIComponent(state.slug)}/tasks/${encodeURIComponent(id)}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-net-werk': '1' },
+      body: JSON.stringify({ to: what === 'done' ? 'done' : 'todo', note }),
+    })
+    const out = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(out.error ?? `HTTP ${res.status}`)
+    toast(out.warning ? `${task?.title ?? id}: ${out.warning}` : what === 'done' ? `✓ ${task?.title ?? id} — done and committed` : `↺ ${task?.title ?? id} — unblocked; the loop can pick it up`, out.warning ? 'error' : '')
+    state.taskAct = null
+  } catch (err) {
+    state.taskAct.busy = false
+    toast(`Couldn't ${what === 'done' ? 'mark that done' : 'unblock that'}: ${err.message}`, 'error')
+  }
+  repaintTasks()
+})
 
 // The loop card. `doing` in a task file only means an iteration took the lock; whether anything
 // is actually building comes from the server's process check (d.runner), and when nothing is,
@@ -659,6 +749,7 @@ function tweenView(to, ms = 900) {
       state.selected = null
       $('detail').className = 'detail empty'
       $('detail').textContent = 'Click a task in the graph to see its brief, acceptance and history.'
+      delete $('detail').dataset.html
       render()
     }
     drag = null
@@ -688,18 +779,19 @@ function renderDetail(t) {
   const s = statusOf(t)
   const stalled = t.status === 'doing' && !running(state.data)
   el.className = `detail ${s}`
-  el.innerHTML = `
+  paint(el, `
     <div class="idline">${esc(t.id)} · ${esc(t.phase)} · p${t.priority}</div>
     <h2>${esc(t.title)}</h2>
     <span class="pill ${stalled ? 'stalled' : s}">${stalled ? 'doing · stalled' : esc(s)}</span>${t.owner === 'human' && t.status !== 'dropped' ? '<span class="pill human">needs you</span>' : ''}
     ${t.commit ? `<div class="muted small" style="margin-top:8px"><code>${esc(t.commit.hash)}</code> ${ago(t.commit.date)} ago</div>` : ''}
+    ${taskActions(t)}
     ${t.notes ? `<h4>${NOTES_HEADING[t.status] ?? 'Notes'}</h4><div class="notes ${esc(t.status)}">${esc(t.notes)}</div>` : ''}
     ${t.depends_on.length ? `<h4>Depends on</h4><div class="deps">${t.depends_on.map((x) => `<a data-id="${esc(x)}">${esc(x)}</a>`).join('')}</div>` : ''}
     ${t.waits_on?.length && t.status === 'todo' ? `<div class="muted small" style="margin-top:6px">waiting on ${t.waits_on.map(esc).join(', ')}</div>` : ''}
     <h4>Acceptance</h4><ul>${(t.acceptance ?? []).map((a) => `<li>${esc(a)}</li>`).join('')}</ul>
     ${t.verify ? `<h4>Verify</h4><div class="verify">${esc(t.verify)}</div>` : ''}
     ${t.spec ? `<h4>Spec</h4><code>${esc(t.spec)}</code>` : ''}
-    ${t.body ? `<h4>Brief</h4><div class="brief">${esc(t.body)}</div>` : ''}`
+    ${t.body ? `<h4>Brief</h4><div class="brief">${esc(t.body)}</div>` : ''}`)
   el.querySelectorAll('.deps a').forEach((a) => (a.onclick = () => select(a.dataset.id)))
 }
 

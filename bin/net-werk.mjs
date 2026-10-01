@@ -9,20 +9,24 @@
 //   net-werk serve --port 4600 [--read-only]
 //   net-werk open [path]          start the server if needed and open that project's page
 //   net-werk info [path]          plain-text state: progress, doing, loop, why it stopped
+//   net-werk demo                 open a seeded demo project you can run and poke at safely
 //   net-werk init [path]          copy the harness kit (engine, loop, gates, prompts) into a project
 //   net-werk start [path] [--mode build] [--iterations 10]
 //   net-werk stop [path]
+//   net-werk done <path> <task>   mark one of your (owner: human) tasks done, and commit it
+//   net-werk unblock <path> <task> [--note "what you provided"]
 //   net-werk add <path> | remove <path> | list
 //   net-werk install              run at login via launchd (uninstall | status)
 
 import { createServer } from 'node:http'
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, unlinkSync, openSync, copyFileSync, statSync, chmodSync, appendFileSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, unlinkSync, openSync, copyFileSync, statSync, chmodSync, appendFileSync, rmSync } from 'node:fs'
 import { execFileSync, spawn } from 'node:child_process'
 import { join, dirname, resolve, extname } from 'node:path'
-import { homedir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
-import { isHarness, snapshot, signature } from '../lib/project.mjs'
-import { controls, startLoop, stopLoop } from '../lib/control.mjs'
+import { isHarness, snapshot, signature, loopProcesses, real } from '../lib/project.mjs'
+import { writeDemo, seedHistory } from '../lib/demo.mjs'
+import { controls, startLoop, stopLoop, markTask } from '../lib/control.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const PUBLIC = join(HERE, '..', 'public')
@@ -84,6 +88,11 @@ async function body(req) {
   try { return JSON.parse(raw || '{}') } catch { throw Object.assign(new Error('body must be JSON'), { status: 400 }) }
 }
 
+function projectSummary(root) {
+  const s = snapshot(root)
+  return { slug: s.name, root, counts: s.counts, total: s.total, running: s.runner.running }
+}
+
 function serve(port, readOnly) {
   const server = createServer(async (req, res) => {
     if (!hostOk(req, port)) return json(res, 421, { error: 'wrong host' })
@@ -103,12 +112,23 @@ function serve(port, readOnly) {
         return json(res, err.status ?? 500, { error: err.message })
       }
     }
+    const mark = path.match(/^\/api\/projects\/([^/]+)\/tasks\/([^/]+)$/)
+    if (mark) {
+      if (req.method !== 'POST' || !writeOk(req)) return json(res, 403, { error: 'forbidden' })
+      if (readOnly) return json(res, 403, { error: 'this server was started with --read-only' })
+      const root = bySlug(decodeURIComponent(mark[1]))
+      if (!root) return json(res, 404, { error: 'no such project' })
+      try {
+        return json(res, 200, markTask(root, decodeURIComponent(mark[2]), await body(req)))
+      } catch (err) {
+        return json(res, err.status ?? 500, { error: err.message })
+      }
+    }
     if (req.method !== 'GET' && req.method !== 'HEAD') return json(res, 405, { error: 'method not allowed' })
 
     if (path === '/api/projects') {
-      return json(res, 200, projects().map((root) => {
-        const s = snapshot(root)
-        return { slug: s.name, root, counts: s.counts, total: s.total, running: s.runner.running }
+      return json(res, 200, projects().flatMap((root) => {
+        try { return [projectSummary(root)] } catch { return [] } // skip one that vanished mid-scan
       }))
     }
 
@@ -117,22 +137,33 @@ function serve(port, readOnly) {
       const root = bySlug(decodeURIComponent(m[1]))
       if (!root) return json(res, 404, { error: 'no such project' })
       const snap = () => ({ ...snapshot(root), controls: readOnly ? { script: false, modes: [], read_only: true } : controls(root) })
-      if (!m[2]) return json(res, 200, snap())
+      if (!m[2]) {
+        try { return json(res, 200, snap()) } catch (err) { return json(res, 410, { error: `can't read ${root}: ${err.message}` }) }
+      }
 
       // Server-sent events: push a fresh snapshot whenever the project's fingerprint changes.
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' })
       let last = ''
+      let timer = null
       const tick = () => {
-        const sig = signature(root)
-        if (sig !== last) {
-          last = sig
-          res.write(`data: ${JSON.stringify(snap())}\n\n`)
-        } else {
-          res.write(': ping\n\n')
+        try {
+          const sig = signature(root)
+          if (sig !== last) {
+            last = sig
+            res.write(`data: ${JSON.stringify(snap())}\n\n`)
+          } else {
+            res.write(': ping\n\n')
+          }
+        } catch (err) {
+          // The project went away under us (deleted, moved, renamed). Tell the page and stop
+          // watching it — one vanished folder must not take the whole server down.
+          clearInterval(timer)
+          res.write(`event: gone\ndata: ${JSON.stringify({ error: err.message })}\n\n`)
+          res.end()
         }
       }
       tick()
-      const timer = setInterval(tick, 1500)
+      timer = setInterval(tick, 1500)
       req.on('close', () => clearInterval(timer))
       return
     }
@@ -313,6 +344,17 @@ function init(root) {
     console.error(`${root} does not exist`)
     process.exit(1)
   }
+  const { made, kept } = copyKit(root)
+  const rel = (p) => p.slice(root.length + 1)
+  console.log(`scaffolded the harness kit into ${root}`)
+  for (const p of made) console.log(`  + ${rel(p)}`)
+  for (const p of kept) console.log(`  = ${rel(p)} (already there, kept)`)
+  try { execFileSync('git', ['-C', root, 'rev-parse', '--git-dir'], { stdio: 'ignore' }) } catch { console.log('  ! not a git repository yet — run `git init`: the loop measures progress in commits') }
+  console.log('next: write specs/, the tasks in harness/graph/, the project rules in harness/prompts/*.md')
+  console.log('      and the gates in harness/bin/verify.mjs; then validate, verify and commit as `plan: …`')
+}
+
+function copyKit(root) {
   const kit = join(HERE, '..', 'kit', 'harness')
   const made = []
   const kept = []
@@ -336,13 +378,55 @@ function init(root) {
     appendFileSync(ignore, `${ignored && !ignored.endsWith('\n') ? '\n' : ''}# the loop's live log, tailed by net-werk\nharness/.loop.log\n`)
     made.push(ignore + ' (+ harness/.loop.log)')
   }
-  const rel = (p) => p.slice(root.length + 1)
-  console.log(`scaffolded the harness kit into ${root}`)
-  for (const p of made) console.log(`  + ${rel(p)}`)
-  for (const p of kept) console.log(`  = ${rel(p)} (already there, kept)`)
-  try { execFileSync('git', ['-C', root, 'rev-parse', '--git-dir'], { stdio: 'ignore' }) } catch { console.log('  ! not a git repository yet — run `git init`: the loop measures progress in commits') }
-  console.log('next: write specs/, the tasks in harness/graph/, the project rules in harness/prompts/*.md')
-  console.log('      and the gates in harness/bin/verify.mjs; then validate, verify and commit as `plan: …`')
+  return { made, kept }
+}
+
+// `demo` builds a throwaway copy of the seeded demo project ("Larder") in the temp folder — files,
+// the harness kit, and a backdated commit history — then opens it. Its loop is a simulation that
+// really advances tasks there, without calling Claude. Each run starts fresh, unless the demo's
+// loop is running right now.
+async function demo(port, noBrowser) {
+  const dir = join(tmpdir(), 'net-werk-demo', 'larder')
+  const running = existsSync(dir) && loopProcesses({ fresh: true })?.get(real(dir))?.length
+  if (existsSync(dir) && !running) {
+    if (!existsSync(join(dir, '.net-werk-demo'))) {
+      console.error(`${dir} exists and isn't a net-werk demo — not touching it`)
+      process.exit(1)
+    }
+    rmSync(dir, { recursive: true, force: true })
+  }
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true })
+    writeDemo(dir, { live: true })
+    copyKit(dir)
+    seedHistory(dir)
+    console.log(`seeded the demo project in ${dir}`)
+  } else {
+    console.log('the demo loop is running — opening it as it is')
+  }
+  await openProject(dir, port, noBrowser)
+  console.log('press ▶ to watch it build (simulated: no model is called), or try ✓ Mark done on a "you" task')
+}
+
+async function taskCommand(root, id, to, note, port) {
+  if (!id) {
+    console.error(`usage: net-werk ${to === 'done' ? 'done' : 'unblock'} <path> <task-id>${to === 'todo' ? ' [--note "what you provided"]' : ''}`)
+    process.exit(2)
+  }
+  register(root)
+  await ensureServer(port)
+  const res = await fetch(`${base(port)}/api/projects/${encodeURIComponent(slugOf(root))}/tasks/${encodeURIComponent(id)}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-net-werk': '1' },
+    body: JSON.stringify({ to, note }),
+  })
+  const out = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    console.error(`✗ ${out.error ?? `HTTP ${res.status}`}`)
+    process.exit(1)
+  }
+  console.log(`${to === 'done' ? '✓' : '↺'} ${id} → ${out.status}${out.committed ? ' (committed)' : ''}`)
+  if (out.warning) console.log(`  ! ${out.warning}`)
 }
 
 // A plain-text read of a project, for terminals and for agents: what's done, what's in doing,
@@ -376,7 +460,7 @@ function info(root) {
 /* ---------- cli ------------------------------------------------------------ */
 
 const [cmd = 'serve', ...args] = process.argv.slice(2)
-const VALUED = new Set(['--port', '--mode', '--iterations'])
+const VALUED = new Set(['--port', '--mode', '--iterations', '--note'])
 const flag = (name, fallback) => {
   const i = args.indexOf(`--${name}`)
   return i === -1 ? fallback : args[i + 1]
@@ -414,6 +498,9 @@ switch (cmd) {
   case 'open':
     openProject(rootArg(), PORT, args.includes('--no-browser'))
     break
+  case 'demo':
+    demo(PORT, args.includes('--no-browser'))
+    break
   case 'init':
     init(rootArg())
     break
@@ -426,6 +513,12 @@ switch (cmd) {
   case 'stop':
     loopCommand('stop', rootArg(), PORT)
     break
+  case 'done':
+    taskCommand(rootArg(), positional[1], 'done', null, PORT)
+    break
+  case 'unblock':
+    taskCommand(rootArg(), positional[1], 'todo', flag('note', ''), PORT)
+    break
   case 'install':
     launchdInstall(PORT, args.includes('--read-only'))
     break
@@ -436,6 +529,6 @@ switch (cmd) {
     launchdStatus(PORT)
     break
   default:
-    console.error(`unknown command '${cmd}'. try: serve | open | init | info | start | stop | add | remove | list | install | uninstall | status`)
+    console.error(`unknown command '${cmd}'. try: serve | open | demo | init | info | start | stop | done | unblock | add | remove | list | install | uninstall | status`)
     process.exit(2)
 }

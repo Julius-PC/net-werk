@@ -8,7 +8,7 @@
   },
   "scripts": {
     "start": "node bin/net-werk.mjs serve",
-    "demo": "node bin/net-werk.mjs open examples/demo"
+    "demo": "node bin/net-werk.mjs demo"
   },
   "files": [
     "bin",
@@ -16,6 +16,7 @@
     "public",
     "kit",
     "skills",
+    "scripts",
     "examples",
     "LICENSE",
     "README.md"

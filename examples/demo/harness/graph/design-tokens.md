@@ -1,17 +1,17 @@
 ---
 id: design-tokens
-title: Put the chosen palette and type into tokens
-phase: design
+title: Apply the brand to the token layer
+phase: scaffold
 status: done
 owner: agent
-priority: 2
+priority: 3
 depends_on:
-  - choose-palette
-  - base-layout
-spec: specs/site.md
-verify: npm run build
+  - choose-brand
+  - web-shell
+spec: specs/product.md
+verify: npm test
 acceptance:
-  - Colors, spacing and type come from one tokens file
+  - Apply the brand to the token layer, with a test that fails if it breaks
 ---
 
-No raw hex values outside the tokens file.
+Apply the brand to the token layer. Read specs/product.md first; keep the change to this task.

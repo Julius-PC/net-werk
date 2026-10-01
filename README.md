@@ -6,7 +6,10 @@ build it one task at a time, and watch the net work: the task graph as it moves
 stops — **why** it stopped. It comes with the harness kit to scaffold a project, and a Claude
 Code skill that takes you from "let's do a harness" to a running loop.
 
-![net-werk in dark mode, showing a stalled task and the reason the loop stopped](docs/screenshot-dark.png)
+![net-werk building the seeded demo: the loop finishes a task, it bursts green, and the next one starts](docs/demo.gif)
+
+<sub>The seeded demo (`net-werk demo`): a made-up app mid-build, the loop finishing one task and
+starting the next. Nothing in it is real, and no model is called.</sub>
 
 It's built for the "harness" pattern: `specs/` that say what's true, a task graph of small
 verifiable tasks in `harness/graph/`, and a loop script that runs one fresh
@@ -48,15 +51,20 @@ press ▶ again.
 git clone https://github.com/Julius-PC/net-werk.git
 cd net-werk
 npm link                          # puts `net-werk` on your PATH; there is nothing to install
-net-werk open examples/demo       # try it
+net-werk demo                     # try it on a seeded project
 ```
 
 Requires Node 20+. Tested on macOS; Linux should work (loop detection uses `ps` and `lsof`).
 Without `npm link`, use `node bin/net-werk.mjs` wherever this README says `net-werk`.
 
-`examples/demo` is a made-up recipe-site project whose loop stopped after two iterations
-without progress. Its `loop.sh` is a **simulation** — it prints the same log format as a real
-loop but never calls Claude — so ▶ and ■ are safe to try.
+`net-werk demo` builds **Larder** — a made-up pantry and meal-planning app, 77 tasks, two-thirds
+done — in a temp folder, with a commit history, and opens it. Its loop is a **simulation**: it
+never calls Claude, but it really advances the graph, so ▶ shows tasks being built and committed
+one after another. Try ✓ **Mark done** on a "you" task and **Unblock** on the blocked one too.
+Each `net-werk demo` starts fresh. (`examples/demo` is the same project as plain files, for
+browsing; `node scripts/seed-demo.mjs` regenerates it.)
+
+![net-werk mid-build on the seeded demo, dark](docs/screenshot-dark.png)
 
 ## The Claude Code skill
 
@@ -110,6 +118,8 @@ net-werk init ~/src/app                   # copy the harness kit into a project
 net-werk info ~/src/app                   # plain-text state: progress, doing, loop, why it stopped
 net-werk start ~/src/app --mode build --iterations 10
 net-werk stop ~/src/app
+net-werk done ~/src/app <task-id>         # mark one of your tasks done (and commit it)
+net-werk unblock ~/src/app <task-id> --note "what you provided"
 net-werk add ~/src/app                    # register a project (list | remove work too)
 ```
 
@@ -179,7 +189,7 @@ claude -p "$(cat "$PROMPT")" --output-format stream-json --verbose | node harnes
 | --- | --- |
 | Loop card | **Building** (a loop is running and a task is in `doing`), **Re-planning**, **Running · between tasks**, **Stalled** (a task is in `doing` but nothing is running — with the reason and the task's notes), or **Idle** |
 | Progress | done / doing / ready / blocked / waiting, with dropped counted separately |
-| Waiting on you | ready human tasks, and blocked tasks with their notes |
+| Waiting on you | ready human tasks (✓ Mark done), and blocked tasks with their notes (Unblock) |
 | Graph | the DAG left to right by dependency depth. Opens zoomed on the active task. Click a task for its brief, acceptance, verify, spec and notes |
 | Dock | Orient → Implement → Verify → Commit for the current iteration, inferred from its tool calls, and a lane of those calls |
 | Controls | ▶ opens a popover to pick the mode and number of iterations; ■ stops a running loop after a confirm. Zoom, fit (⤢) and **Focus** (◎) |
@@ -205,12 +215,12 @@ the commit; every `task(<id>): …` line under Commits is one finished task. Fro
    - *All done* — it's built.
 4. **Change direction** — edit `specs/` and commit; the next run re-plans before building.
 
-net-werk doesn't edit tasks, so mark your own tasks done from the project — tell Claude in the
-project's chat, or:
-
-```bash
-node harness/bin/graph.mjs set <task-id> done
-```
+**Your tasks.** Each task waiting on you has **✓ Mark done**, and each blocked task has
+**Unblock**, with an optional note saying what you provided, which goes into the task's notes
+for the next agent. Both ask first, go through the project's own `graph.mjs`, and commit just
+that task file (`task(<id>): …` / `unblock(<id>): …`). Only your tasks can be marked done here:
+the agent's tasks are done when they pass their gates, not when someone presses a button. From
+a terminal: `net-werk done <path> <task-id>` and `net-werk unblock <path> <task-id> --note "…"`.
 
 "Stalled" means something narrow: a task is still marked `doing`, but no loop is running (it hit
 its cap or was killed mid-task). Pressing ▶ resumes that task first.
@@ -237,13 +247,16 @@ The page shows private plans and can start processes, so:
 
 - The server binds **127.0.0.1 only**, and rejects requests whose `Host` isn't
   `127.0.0.1:<port>` or `localhost:<port>` (DNS-rebinding protection).
-- Start/stop are `POST`s that must carry an `X-Net-Werk` header and a same-origin `Origin`.
+- Every action — start, stop, mark done, unblock — is a `POST` that must carry an `X-Net-Werk` header and a same-origin `Origin`.
   A web page on another site can't send that header without a CORS preflight, which the server
   never approves.
 - Starting runs only the project's own `harness/bin/loop.sh`, with a mode that must match a file
   in `harness/prompts/` and an iteration count from 1 to 200.
 - Stopping sends SIGTERM (then SIGKILL) to that project's loop and everything it started, and
-  appends one line to its `.loop.log`. Nothing else in a project is ever written.
+  appends one line to its `.loop.log`.
+- Mark done / unblock change one task through the project's `graph.mjs` and commit only that
+  file; only human-owned tasks can be marked done, only blocked ones unblocked. Nothing else in a
+  project is ever written, and nothing is written at all until you press a button.
 - `serve --read-only` turns the controls off entirely.
 
 A loop started from the page keeps running if the server stops. Whatever `loop.sh` grants the
@@ -280,7 +293,7 @@ The visual direction follows RonDesignLab's
 The bundled [Outfit](https://github.com/Outfitio/Outfit-Fonts) typeface is under the SIL Open
 Font License (`public/fonts/OFL.txt`).
 
-![net-werk in light mode](docs/screenshot-light.png)
+![net-werk mid-build on the seeded demo, light](docs/screenshot-light.png)
 
 ## License
 

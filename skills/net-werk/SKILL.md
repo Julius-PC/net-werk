@@ -109,6 +109,9 @@ net-werk start <root> --mode build --iterations 10
 ```
 
 It returns straight away; the loop runs detached and the dashboard shows each iteration live.
-Don't sit and poll it. It stops by itself when every task is done, when only human tasks are
+Don't sit and poll it. When it stops at **Waiting on you**, the user does their tasks and marks
+them done with ✓ Mark done on the dashboard (or `net-werk done <root> <task-id>`); a blocked task
+is unblocked once what it needs is in the specs (`net-werk unblock <root> <task-id> --note "…"`).
+Then start it again. It stops by itself when every task is done, when only human tasks are
 left, or after two iterations without a commit. `net-werk stop <root>` ends it early — only when
 asked; the task in `doing` stays there and the next run resumes it.

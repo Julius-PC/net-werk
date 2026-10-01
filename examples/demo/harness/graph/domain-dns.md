@@ -1,16 +1,15 @@
 ---
 id: domain-dns
-title: Point the domain at the host
+title: Point the domain at production
 phase: deploy
 status: todo
 owner: human
-priority: 3
+priority: 2
 depends_on:
-  - deploy-preview
-spec: specs/site.md
-verify: npm run build
+  - deploy-prod
+spec: specs/deploy.md
 acceptance:
-  - The domain serves the site over HTTPS
+  - Point the domain at production — and say so in the task's notes
 ---
 
-DNS access is a human gate.
+A gate the loop can't pass: point the domain at production. Mark it done in net-werk when it's finished.

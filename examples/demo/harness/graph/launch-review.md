@@ -1,20 +1,18 @@
 ---
 id: launch-review
-title: Review every page at phone and desktop widths
-phase: deploy
+title: Review every screen at phone and desktop widths
+phase: launch
 status: todo
 owner: agent
-priority: 2
+priority: 1
 depends_on:
-  - search-index
-  - print-styles
-  - rss-feed
-  - photo-pipeline
-  - domain-dns
-spec: specs/site.md
-verify: npm run build
+  - a11y-pass
+  - store-screenshots
+  - privacy-page
+spec: specs/launch.md
+verify: npm test
 acceptance:
-  - Every route checked at 375px and 1440px; findings fixed or filed as tasks
+  - Review every screen at phone and desktop widths, with a test that fails if it breaks
 ---
 
-The last gate before launch.
+Review every screen at phone and desktop widths. Read specs/launch.md first; keep the change to this task.
