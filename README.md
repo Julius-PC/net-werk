@@ -15,6 +15,33 @@ verifiable tasks in `harness/graph/`, and a loop script that runs one fresh
 
 Zero dependencies: Node's `http` module, server-sent events and one static page.
 
+## How it works
+
+**Nothing moves into net-werk.** The harness lives in your project: `specs/` (what you're
+building), `harness/graph/` (one file per task) and `harness/bin/loop.sh` (the loop). net-werk
+is a window onto those files — it reads them live and draws them — and ▶ simply runs your
+project's own `loop.sh`, as if you'd typed `./harness/bin/loop.sh build 10` in a terminal.
+
+**One iteration is one task.** Each iteration is a fresh Claude Code session that takes the next
+ready task, does only that, proves it with the project's gates, and commits it. You choose how
+many iterations to allow when you press ▶ (default 10) — a budget, not a target. The loop stops
+sooner by itself when every task is done, when only your tasks are left, after two iterations in
+a row without a commit, or when the graph has an error.
+
+**It adapts in two specific ways.**
+
+- *While building:* work the agent finds that belongs to another task goes into the graph as a
+  new task, not done on the spot. A task it can't finish — it needs a credential, an asset or a
+  decision — is marked **blocked** with a one-line note saying what's missing.
+- *When the specs change:* if `specs/` changed since the last plan, the next run **re-plans**
+  first — tasks the new direction makes pointless are dropped, new ones added, the rest
+  updated. The specs steer, not the agent: to change direction, edit the specs.
+
+**It finishes what it can, then waits on you.** Tasks owned by a human (accounts, credentials,
+money, taste) are gates the loop never passes. When only those are left, it stops and says
+**Waiting on you**; everything that depends on them waits too. Do yours, mark them done, and
+press ▶ again.
+
 ## Install
 
 ```bash
@@ -157,6 +184,36 @@ claude -p "$(cat "$PROMPT")" --output-format stream-json --verbose | node harnes
 | Dock | Orient → Implement → Verify → Commit for the current iteration, inferred from its tool calls, and a lane of those calls |
 | Controls | ▶ opens a popover to pick the mode and number of iterations; ■ stops a running loop after a confirm. Zoom, fit (⤢) and **Focus** (◎) |
 | Inspector | the selected task, recent commits (`task(<id>): …` commits link to their task), and the raw loop log |
+
+In the graph: **green ✓** done · **yellow, glowing** being built now · **blue** ready ·
+**grey** waiting on earlier tasks · **dashed purple with a "you" tag** yours · **red** blocked ·
+**dashed orange** stalled · **struck through** dropped.
+
+**What's actually done?** A green task passed its gates and was committed — click it to see
+the commit; every `task(<id>): …` line under Commits is one finished task. From a terminal,
+`net-werk info <path>` prints the same summary.
+
+### Running it, day to day
+
+1. **Plan** — "let's do a harness" with the skill: plan mode, you approve, it scaffolds and
+   starts the loop. (Or scaffold by hand with `net-werk init` and press ▶.)
+2. **Watch, or walk away.** It stops by itself.
+3. **Read the loop card and act on the reason:**
+   - *Waiting on you* — do your tasks, mark them done, ▶.
+   - *Hit its iteration cap* — ▶ to keep going.
+   - *Stalled* or *No progress* — read the task's notes; usually a spec is unclear. Fix it, ▶.
+   - *All done* — it's built.
+4. **Change direction** — edit `specs/` and commit; the next run re-plans before building.
+
+net-werk doesn't edit tasks, so mark your own tasks done from the project — tell Claude in the
+project's chat, or:
+
+```bash
+node harness/bin/graph.mjs set <task-id> done
+```
+
+"Stalled" means something narrow: a task is still marked `doing`, but no loop is running (it hit
+its cap or was killed mid-task). Pressing ▶ resumes that task first.
 
 **Focus** keeps the camera on the task being built and follows the loop as it moves on.
 Switching it on glides to the active task; moving the graph yourself — drag, scroll, pinch,
