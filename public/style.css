@@ -221,8 +221,18 @@ code, .mono { font-family: var(--mono); font-size: 11.5px; }
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--ink-2);
   font-size: 12.5px; padding: 7px 12px; transition: background .15s, color .15s;
 }
-.toolbar select { cursor: pointer; }
-.toolbar select:hover, .toggle span:hover, .tb:hover { background: var(--surface-2); color: var(--ink); }
+.toolbar select:hover, .toggle span:hover, .tb:hover { background-color: var(--surface-2); color: var(--ink); }
+/* Our own chevron instead of the browser's, which hugs the right edge: a thin "∨" drawn as two
+   diagonal strokes ("\" then "/") in currentColor, so it follows the theme and the hover
+   colour, with room on both sides. */
+.toolbar select {
+  appearance: none; -webkit-appearance: none; cursor: pointer; padding-right: 36px;
+  --stroke: transparent calc(50% - .75px), currentColor calc(50% - .75px), currentColor calc(50% + .75px), transparent calc(50% + .75px);
+  background-image: linear-gradient(45deg, var(--stroke)), linear-gradient(135deg, var(--stroke));
+  background-position: calc(100% - 20px) 55%, calc(100% - 14px) 55%;
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+}
 .toggle { cursor: pointer; }
 .toggle input, .follow input { position: absolute; opacity: 0; pointer-events: none; }
 .toggle input:checked + span, .follow input:checked + span { background: var(--invert); color: var(--on-invert); border-color: var(--invert); }
